@@ -1,11 +1,14 @@
 ﻿#pragma once
 
+#include <QColor>
 #include <QIcon>
 
 namespace ModeFlow::Gui {
 
 class FontAwesome {
 public:
+    enum class IconRole { Normal, Active, Disabled, Badge };
+
     struct IconDefinition {
         QString id;
         QString label;
@@ -63,6 +66,9 @@ public:
      * @param size - icon size in pixels. When omitted or <= 0, a single fallback-size pixmap is generated.
      */
     static QIcon icon(const QString& symbol, int size = 0);
+    static QIcon icon(const QString& symbol, IconRole role, int size = 0);
+    static QIcon icon(const QString& symbol, const QColor& customColor, int size = 0);
+
     static QList<IconDefinition> profileIconDefinitions();
     static QString defaultProfileIconSymbol();
 
@@ -72,6 +78,9 @@ public:
 
 private:
     static void ensureFontLoaded();
+    static QIcon renderIcon(const QString& symbol, const QColor& normalColor, const QColor& activeColor,
+                            const QColor& disabledColor, int size, const QString& cacheVariant);
+
     static QString s_fontFamily;
     static quint64 s_themeRevision;
 };

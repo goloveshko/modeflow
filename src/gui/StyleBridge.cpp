@@ -13,15 +13,15 @@ StyleBridge& StyleBridge::instance() {
 
 StyleBridge::StyleBridge(QWidget* parent)
     : QWidget(parent), m_iconPrefix(u":/icons/light"_s), m_iconNormal(Qt::white), m_iconActive(Qt::white),
-      m_iconDisabled(Qt::gray), m_sidebarItemHoverBg(QColor(255, 255, 255, 20)),
+      m_iconDisabled(Qt::gray), m_iconBadge(QColor(u"#FF9800"_s)), m_sidebarItemHoverBg(QColor(255, 255, 255, 20)),
       m_sidebarItemSelectedBg(QColor(255, 255, 255, 30)), m_sidebarTextNormal(QColor(u"#AAAAAA"_s)),
       m_sidebarTextSelected(Qt::white), m_sidebarAccent(QColor(u"#60CDFF"_s)), m_logTimestamp(QColor(u"#707070"_s)),
       m_logCategory(QColor(u"#0066CC"_s)), m_logFunction(QColor(u"#7F7F00"_s)), m_logDebug(QColor(u"#666666"_s)),
       m_logInfo(QColor(u"#2E7D32"_s)), m_logWarning(QColor(u"#E65100"_s)), m_logCritical(QColor(u"#C62828"_s)),
       m_logFatal(QColor(u"#8E0000"_s)) {
-    setObjectName("styleBridge"); // Key name for QSS selector
+    setObjectName("styleBridge");
     setAttribute(Qt::WA_DontShowOnScreen);
-    hide(); // Widget exists only in memory
+    hide();
 }
 
 QString StyleBridge::iconPrefix() const {
@@ -35,6 +35,9 @@ QColor StyleBridge::iconActive() const {
 }
 QColor StyleBridge::iconDisabled() const {
     return m_iconDisabled;
+}
+QColor StyleBridge::iconBadge() const {
+    return m_iconBadge;
 }
 
 QColor StyleBridge::sidebarItemHoverBg() const {
@@ -83,7 +86,7 @@ bool StyleBridge::isDarkTheme() const {
 }
 
 void StyleBridge::updateStyle(const QString& qss) {
-    this->setStyleSheet(qss);
+    setStyleSheet(qss);
     Gui::StyleUtils::repolish(this);
 }
 

@@ -18,6 +18,7 @@ class StyleBridge : public QWidget {
     Q_PROPERTY(QColor iconnormal MEMBER m_iconNormal)
     Q_PROPERTY(QColor iconactive MEMBER m_iconActive)
     Q_PROPERTY(QColor icondisabled MEMBER m_iconDisabled)
+    Q_PROPERTY(QColor iconbadge MEMBER m_iconBadge)
 
     // --- Sidebar/Navigation settings ---
     Q_PROPERTY(QColor sidebaritemhoverbg MEMBER m_sidebarItemHoverBg)
@@ -44,6 +45,7 @@ public:
     QColor iconNormal() const;
     QColor iconActive() const;
     QColor iconDisabled() const;
+    QColor iconBadge() const;
 
     // Sidebar getters
     QColor sidebarItemHoverBg() const;
@@ -73,6 +75,7 @@ private:
     QColor m_iconNormal;
     QColor m_iconActive;
     QColor m_iconDisabled;
+    QColor m_iconBadge;
 
     QColor m_sidebarItemHoverBg;
     QColor m_sidebarItemSelectedBg;

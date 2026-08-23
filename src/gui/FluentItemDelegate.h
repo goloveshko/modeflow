@@ -7,8 +7,6 @@ namespace ModeFlow::Gui {
 class FluentItemDelegate : public QStyledItemDelegate {
     Q_OBJECT
 public:
-    using QStyledItemDelegate::QStyledItemDelegate;
-
     explicit FluentItemDelegate(QObject* parent = nullptr);
 
     void paint(QPainter* painter, const QStyleOptionViewItem& option, const QModelIndex& index) const override;

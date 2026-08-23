@@ -84,10 +84,11 @@ void MainWindow::init() {
 template <typename Receiver, typename Func>
 QAction* MainWindow::addMenuAction(QMenu* menu, const QString& iconSymbol, const QString& text,
                                    const Receiver* receiver, Func slot) {
-    QIcon icon = iconSymbol.isEmpty() ? QIcon() : FontAwesome::icon(iconSymbol, 20);
+    QIcon icon = iconSymbol.isEmpty() ? QIcon() : FontAwesome::icon(iconSymbol, FontAwesome::IconRole::Normal, 20);
     QAction* action = menu->addAction(icon, text, receiver, slot);
     if (!iconSymbol.isEmpty()) {
         action->setProperty("faSymbol", iconSymbol);
+        action->setProperty("faRole", static_cast<int>(FontAwesome::IconRole::Normal));
     }
     return action;
 }
@@ -441,11 +442,13 @@ void MainWindow::updateMoreButtonState() {
         ui->btnMore->setToolTip(tr("Update available: v%1 — click for details").arg(m_pendingUpdateVersion));
         if (m_checkUpdatesAction) {
             m_checkUpdatesAction->setText(tr("Update Available (v%1)...").arg(m_pendingUpdateVersion));
+            m_checkUpdatesAction->setProperty("faRole", static_cast<int>(FontAwesome::IconRole::Badge));
         }
     } else {
         ui->btnMore->setToolTip(tr("More options"));
         if (m_checkUpdatesAction) {
             m_checkUpdatesAction->setText(tr("Check for Updates..."));
+            m_checkUpdatesAction->setProperty("faRole", static_cast<int>(FontAwesome::IconRole::Normal));
         }
     }
 
@@ -459,7 +462,11 @@ void MainWindow::refreshMenuIcons(QMenu* menu) {
     for (QAction* action : menu->actions()) {
         const QString symbol = action->property("faSymbol").toString();
         if (!symbol.isEmpty()) {
-            action->setIcon(FontAwesome::icon(symbol, 20));
+            const int roleInt = action->property("faRole").toInt();
+            const auto role = static_cast<FontAwesome::IconRole>(roleInt);
+
+            // Re-render icon respecting the assigned IconRole (Badge or Normal)
+            action->setIcon(FontAwesome::icon(symbol, role, 20));
         }
     }
 }

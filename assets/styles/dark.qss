@@ -485,22 +485,21 @@ QToolButton#profileIconOption[selected="true"] {
     qproperty-iconnormal: rgba(214, 222, 228, 0.84);
     qproperty-iconactive: rgba(149, 189, 202, 0.96);
     qproperty-icondisabled: rgba(255, 255, 255, 0.4);
-
+    qproperty-iconbadge: #FF9800;
     qproperty-sidebaritemhoverbg: rgba(255, 255, 255, 0.07);
     qproperty-sidebaritemselectedbg: rgba(108, 168, 186, 0.16);
     qproperty-sidebartextnormal: #aaaaaa;
     qproperty-sidebartextselected: #eef4f6;
     qproperty-sidebaraccent: #6ca8ba;
-
     /* LogViewer colors */
     qproperty-logtimestamp: #808080;
-    qproperty-logcategory: #64b4ff;
-    qproperty-logfunction: #b4b464;
+    qproperty-logcategory: #64B4FF;
+    qproperty-logfunction: #B4B464;
     qproperty-logdebug: #888888;
-    qproperty-loginfo: #4caf50;
-    qproperty-logwarning: #ff9800;
-    qproperty-logcritical: #f44336;
-    qproperty-logfatal: #b71c1c;
+    qproperty-loginfo: #4CAF50;
+    qproperty-logwarning: #FF9800;
+    qproperty-logcritical: #F44336;
+    qproperty-logfatal: #B71C1C;
 }
 
 /* ── 7. Component-Specific Styles ─────────────────────────── */
@@ -533,14 +532,14 @@ QToolButton#profileIconOption[selected="true"] {
 }
 
 #MainWindow QToolButton#btnMore[hasUpdate="true"] {
-    background-color: rgba(108, 168, 186, 0.16);
-    border: 1px solid rgba(108, 168, 186, 0.45);
+    background-color: rgba(255, 152, 0, 0.14);
+    border: 1px solid rgba(255, 152, 0, 0.45);
     border-radius: 6px;
 }
 
 #MainWindow QToolButton#btnMore[hasUpdate="true"]:hover {
-    background-color: rgba(108, 168, 186, 0.28);
-    border-color: rgba(108, 168, 186, 0.65);
+    background-color: rgba(255, 152, 0, 0.25);
+    border-color: rgba(255, 152, 0, 0.7);
 }
 
 /* Row Widgets */
