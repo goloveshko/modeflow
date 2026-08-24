@@ -8,11 +8,7 @@
 
 namespace ModeFlow::Gui {
 
-FluentItemDelegate::FluentItemDelegate(QObject* parent) : QStyledItemDelegate(parent) {
-    m_iconFont.setFamily(FontAwesome::fontFamily());
-    m_iconFont.setPixelSize(16);
-    m_iconFont.setHintingPreference(QFont::PreferNoHinting);
-}
+FluentItemDelegate::FluentItemDelegate(QObject* parent) : QStyledItemDelegate(parent) {}
 
 void FluentItemDelegate::paint(QPainter* painter, const QStyleOptionViewItem& option, const QModelIndex& index) const {
     painter->save();
@@ -26,12 +22,13 @@ void FluentItemDelegate::paint(QPainter* painter, const QStyleOptionViewItem& op
 
     const bool isActive = index.data(Core::WorkspaceModel::ActiveRole).toBool();
 
-    // Draw rounded selections
+    // Draw rounded selection and hover backgrounds
     if (isSelected) {
         painter->setBrush(bridge.sidebarItemSelectedBg());
         painter->setPen(Qt::NoPen);
         painter->drawRoundedRect(rect, 6, 6);
 
+        // Active selection indicator bar on left edge
         painter->setBrush(bridge.sidebarAccent());
         const int barPadding = 10;
         painter->drawRoundedRect(QRect(rect.left(), rect.top() + barPadding, 3, rect.height() - 2 * barPadding), 1.5,
@@ -42,34 +39,30 @@ void FluentItemDelegate::paint(QPainter* painter, const QStyleOptionViewItem& op
         painter->drawRoundedRect(rect, 6, 6);
     }
 
-    // Draw Shield/Plus Icon (20px box, 8px from left edge)
+    // Resolve and draw Profile Icon (20px box, 8px from left edge)
     const QRect iconRect(rect.left() + 8, rect.top(), 20, rect.height());
-    QVariant decoration = index.data(Qt::DecorationRole);
+    const QVariant decoration = index.data(Qt::DecorationRole);
 
-    if (!decoration.isValid()) {
-        const QString symbol = FontAwesome::defaultProfileIconSymbol();
-        const QIcon itemIcon =
-            FontAwesome::icon(symbol, isActive ? FontAwesome::IconRole::Active : FontAwesome::IconRole::Normal, 16);
-        itemIcon.paint(painter, iconRect, Qt::AlignCenter);
-    } else if (decoration.typeId() == QMetaType::QIcon || decoration.typeId() == QMetaType::QPixmap) {
-        QIcon icon = decoration.value<QIcon>();
-        icon.paint(painter, iconRect, Qt::AlignCenter);
+    QIcon itemIcon;
+    if (decoration.typeId() == QMetaType::QIcon) {
+        itemIcon = decoration.value<QIcon>();
+    } else if (decoration.typeId() == QMetaType::QPixmap) {
+        itemIcon = QIcon(decoration.value<QPixmap>());
     } else {
         QString symbol = decoration.toString();
         if (symbol.isEmpty()) {
             symbol = FontAwesome::defaultProfileIconSymbol();
         }
 
-        painter->setFont(m_iconFont);
-
-        // Visual indicator: Tint the profile icon with accent color if active
-        QColor iconColor =
+        // Tint profile icon with active/selected accent color via cached FontAwesome renderer
+        const QColor iconColor =
             isSelected ? bridge.sidebarTextSelected() : (isActive ? bridge.sidebarAccent() : bridge.iconNormal());
-        painter->setPen(iconColor);
-        painter->drawText(iconRect, Qt::AlignCenter, symbol);
+        itemIcon = FontAwesome::icon(symbol, iconColor, 16);
     }
 
-    // Draw Profile Name Text (8px gap from icon, tight right padding)
+    itemIcon.paint(painter, iconRect, Qt::AlignCenter);
+
+    // Draw Profile Name Text (8px gap from icon, full width right padding)
     const QString text = index.data(Qt::DisplayRole).toString();
     painter->setFont(option.font);
 
@@ -79,15 +72,15 @@ void FluentItemDelegate::paint(QPainter* painter, const QStyleOptionViewItem& op
         painter->setFont(textFont);
     }
 
-    QColor textColor =
+    const QColor textColor =
         isSelected ? bridge.sidebarTextSelected() : (isActive ? bridge.sidebarAccent() : bridge.sidebarTextNormal());
     painter->setPen(textColor);
 
     const int textLeft = iconRect.right() + 8;
-    const int textRight = rect.right() - 8;
+    const int textRight = rect.right() - 10;
     const QRect textRect(textLeft, rect.top(), textRight - textLeft, rect.height());
 
-    QFontMetrics fm(painter->font());
+    const QFontMetrics fm(painter->font());
     const QString elidedText = fm.elidedText(text, Qt::ElideMiddle, textRect.width());
 
     painter->drawText(textRect, Qt::AlignVCenter | Qt::AlignLeft, elidedText);
@@ -97,7 +90,6 @@ void FluentItemDelegate::paint(QPainter* painter, const QStyleOptionViewItem& op
 
 QSize FluentItemDelegate::sizeHint(const QStyleOptionViewItem& option, const QModelIndex& index) const {
     const QSize baseSize = QStyledItemDelegate::sizeHint(option, index);
-    const int itemHeight = qMax(baseSize.height() + 12, 38);
     return QSize(baseSize.width(), qMax(baseSize.height() + 4, 38));
 }
 
