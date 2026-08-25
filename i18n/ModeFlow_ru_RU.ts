@@ -88,7 +88,7 @@
     </message>
 </context>
 <context>
-    <name>HotkeyValidation</name>
+    <name>HotkeyValidator</name>
     <message>
         <source>Shortcut %1 is already assigned to &apos;Next profile&apos;.</source>
         <translation>Сочетание %1 уже назначено для действия «Следующий профиль».</translation>
@@ -206,26 +206,81 @@
     </message>
 </context>
 <context>
+    <name>MainWindow</name>
+    <message>
+        <source>ModeFlow - Workspace Manager</source>
+        <translation>ModeFlow — Менеджер пространств</translation>
+    </message>
+    <message>
+        <source>Create profile...</source>
+        <translation>Создать профиль...</translation>
+    </message>
+    <message>
+        <source>Profile Settings</source>
+        <translation>Параметры профиля</translation>
+    </message>
+    <message>
+        <source>Name:</source>
+        <translation>Название:</translation>
+    </message>
+    <message>
+        <source>Hotkey:</source>
+        <translation>Сочетание:</translation>
+    </message>
+    <message>
+        <source>Skip this profile when using the Next profile hotkey to cycle through profiles.</source>
+        <translation>Не переключаться на этот профиль при использовании горячей клавиши «Следующий профиль».</translation>
+    </message>
+    <message>
+        <source>Exclude from &quot;Next profile&quot;</source>
+        <translation>Исключить из «След. профиля»</translation>
+    </message>
+    <message>
+        <source>Hardware</source>
+        <translation>Оборудование</translation>
+    </message>
+    <message>
+        <source>Display:</source>
+        <translation>Монитор:</translation>
+    </message>
+    <message>
+        <source>Audio output:</source>
+        <translation>Звук:</translation>
+    </message>
+    <message>
+        <source>Detect and save the monitor and audio device currently used by the system into this profile.</source>
+        <translation>Определить и сохранить текущий монитор и аудиоустройство системы в этот профиль.</translation>
+    </message>
+    <message>
+        <source>Use current settings</source>
+        <translation>Захватить текущие настройки</translation>
+    </message>
+    <message>
+        <source>Automation</source>
+        <translation>Автоматизация</translation>
+    </message>
+    <message>
+        <source>List of applications to launch when this profile is activated.</source>
+        <translation>Список приложений для запуска при активации этого профиля.</translation>
+    </message>
+    <message>
+        <source>Settings</source>
+        <translation>Настройки</translation>
+    </message>
+    <message>
+        <source>More options</source>
+        <translation>Дополнительно</translation>
+    </message>
+    <message>
+        <source>About</source>
+        <translation>О программе</translation>
+    </message>
+</context>
+<context>
     <name>ModeFlow::Core::AppController</name>
-    <message>
-        <source>You are up to date.</source>
-        <translation>Вы используете последнюю версию.</translation>
-    </message>
-    <message>
-        <source>Update check failed</source>
-        <translation>Ошибка проверки обновлений</translation>
-    </message>
     <message>
         <source>ModeFlow</source>
         <translation>ModeFlow</translation>
-    </message>
-    <message>
-        <source>Apply Profile</source>
-        <translation>Применить профиль</translation>
-    </message>
-    <message>
-        <source>Apply profile &apos;%1&apos;?</source>
-        <translation>Применить профиль &apos;%1&apos;?</translation>
     </message>
 </context>
 <context>
@@ -325,20 +380,12 @@
         <translation>Убрать из последовательности</translation>
     </message>
     <message>
-        <source>Edit Program</source>
-        <translation>Изменение программы</translation>
-    </message>
-    <message>
-        <source>Add Program</source>
-        <translation>Добавление программы</translation>
-    </message>
-    <message>
         <source>Edit...</source>
         <translation>Изменить...</translation>
     </message>
     <message>
         <source>Delete</source>
-        <translation>Удаление</translation>
+        <translation>Удалить</translation>
     </message>
     <message>
         <source>Add program...</source>
@@ -359,6 +406,33 @@
     <message>
         <source> [Auto-close]</source>
         <translation> [Автозакрытие]</translation>
+    </message>
+</context>
+<context>
+    <name>ModeFlow::Gui::DialogManager</name>
+    <message>
+        <source>You are up to date.</source>
+        <translation>Вы используете последнюю версию.</translation>
+    </message>
+    <message>
+        <source>Update check failed: %1</source>
+        <translation>Ошибка проверки обновлений: %1</translation>
+    </message>
+    <message>
+        <source>Apply Profile</source>
+        <translation>Применить профиль</translation>
+    </message>
+    <message>
+        <source>Apply profile &apos;%1&apos;?</source>
+        <translation>Применить профиль &apos;%1&apos;?</translation>
+    </message>
+    <message>
+        <source>Edit Program</source>
+        <translation>Изменение программы</translation>
+    </message>
+    <message>
+        <source>Add Program</source>
+        <translation>Добавление программы</translation>
     </message>
 </context>
 <context>
@@ -449,7 +523,46 @@
     </message>
 </context>
 <context>
-    <name>ModeFlow::Gui::ProfileDetailsController</name>
+    <name>ModeFlow::Gui::MainWindow</name>
+    <message>
+        <source>Update Available (v%1)...</source>
+        <translation>Доступно обновление (v%1)...</translation>
+    </message>
+    <message>
+        <source>Delete</source>
+        <translation>Удалить</translation>
+    </message>
+    <message>
+        <source>Delete configuration &apos;%1&apos;?</source>
+        <translation>Удалить конфигурацию «%1»?</translation>
+    </message>
+    <message>
+        <source>More options</source>
+        <translation>Дополнительно</translation>
+    </message>
+    <message>
+        <source>View Log</source>
+        <translation>Просмотр лога</translation>
+    </message>
+    <message>
+        <source>Update available: v%1 — click for details</source>
+        <translation>Доступно обновление v%1 — нажмите для подробностей</translation>
+    </message>
+    <message>
+        <source>Check for Updates...</source>
+        <translation>Проверить обновления...</translation>
+    </message>
+    <message>
+        <source>Export Profiles</source>
+        <translation>Экспорт профилей</translation>
+    </message>
+    <message>
+        <source>Import Profiles</source>
+        <translation>Импорт профилей</translation>
+    </message>
+</context>
+<context>
+    <name>ModeFlow::Gui::ProfileEditor</name>
     <message>
         <source>Choose icon</source>
         <translation>Выбрать значок</translation>
@@ -460,7 +573,26 @@
     </message>
 </context>
 <context>
-    <name>ModeFlow::Gui::ProfileExchangeController</name>
+    <name>ModeFlow::Gui::ProfileListView</name>
+    <message>
+        <source>Create...</source>
+        <translation>Создать...</translation>
+    </message>
+    <message>
+        <source>Apply</source>
+        <translation>Применить</translation>
+    </message>
+    <message>
+        <source>Duplicate</source>
+        <translation>Дублировать</translation>
+    </message>
+    <message>
+        <source>Delete</source>
+        <translation>Удалить</translation>
+    </message>
+</context>
+<context>
+    <name>ModeFlow::Gui::ProfileTransfer</name>
     <message>
         <source>Import Profiles</source>
         <translation>Импорт профилей</translation>
@@ -516,29 +648,6 @@
 %1</source>
         <translation>Не удалось экспортировать профили в:
 %1</translation>
-    </message>
-</context>
-<context>
-    <name>ModeFlow::Gui::ProfileListView</name>
-    <message>
-        <source>Delete profile</source>
-        <translation>Удалить профиль</translation>
-    </message>
-    <message>
-        <source>Create profile...</source>
-        <translation>Создать профиль...</translation>
-    </message>
-    <message>
-        <source>Apply Profile</source>
-        <translation>Применить профиль</translation>
-    </message>
-    <message>
-        <source>Duplicate profile</source>
-        <translation>Дублировать профиль</translation>
-    </message>
-    <message>
-        <source>Delete</source>
-        <translation>Удаление</translation>
     </message>
 </context>
 <context>
@@ -602,14 +711,6 @@
 <context>
     <name>ModeFlow::Gui::UpdateDialog</name>
     <message>
-        <source>Update Available</source>
-        <translation>Доступно обновление</translation>
-    </message>
-    <message>
-        <source>A new version of ModeFlow is ready to install.</source>
-        <translation>Готова к установке новая версия ModeFlow.</translation>
-    </message>
-    <message>
         <source>Installed: v%1</source>
         <translation>Установлена: v%1</translation>
     </message>
@@ -620,45 +721,6 @@
     <message>
         <source>No changelog available.</source>
         <translation>Список изменений недоступен.</translation>
-    </message>
-</context>
-<context>
-    <name>ModeFlow::Gui::MainWindow</name>
-    <message>
-        <source>Update Available (v%1)...</source>
-        <translation>Доступно обновление: v%1</translation>
-    </message>
-    <message>
-        <source>Delete</source>
-        <translation>Удаление</translation>
-    </message>
-    <message>
-        <source>Delete configuration &apos;%1&apos;?</source>
-        <translation>Удалить конфигурацию «%1»?</translation>
-    </message>
-    <message>
-        <source>More options</source>
-        <translation>Дополнительно</translation>
-    </message>
-    <message>
-        <source>View Log</source>
-        <translation>Просмотр лога</translation>
-    </message>
-    <message>
-        <source>Update available: v%1 — click for details</source>
-        <translation>Доступно обновление v%1 — нажмите для подробностей</translation>
-    </message>
-    <message>
-        <source>Check for Updates...</source>
-        <translation>Проверить обновления...</translation>
-    </message>
-    <message>
-        <source>Export Profiles</source>
-        <translation>Экспорт профилей</translation>
-    </message>
-    <message>
-        <source>Import Profiles</source>
-        <translation>Импорт профилей</translation>
     </message>
 </context>
 <context>
@@ -923,77 +985,6 @@
     <message>
         <source>Download</source>
         <translation>Скачать</translation>
-    </message>
-</context>
-<context>
-    <name>MainWindow</name>
-    <message>
-        <source>ModeFlow - Workspace Manager</source>
-        <translation>ModeFlow — Менеджер пространств</translation>
-    </message>
-    <message>
-        <source>Create profile...</source>
-        <translation>Создать профиль...</translation>
-    </message>
-    <message>
-        <source>Profile Settings</source>
-        <translation>Параметры профиля</translation>
-    </message>
-    <message>
-        <source>Name:</source>
-        <translation>Название:</translation>
-    </message>
-    <message>
-        <source>Hotkey:</source>
-        <translation>Сочетание:</translation>
-    </message>
-    <message>
-        <source>Skip this profile when using the Next profile hotkey to cycle through profiles.</source>
-        <translation>Не переключаться на этот профиль при использовании горячей клавиши «Следующий профиль».</translation>
-    </message>
-    <message>
-        <source>Exclude from &quot;Next profile&quot;</source>
-        <translation>Исключить из «След. профиля»</translation>
-    </message>
-    <message>
-        <source>Hardware</source>
-        <translation>Оборудование</translation>
-    </message>
-    <message>
-        <source>Display:</source>
-        <translation>Монитор:</translation>
-    </message>
-    <message>
-        <source>Audio output:</source>
-        <translation>Звук:</translation>
-    </message>
-    <message>
-        <source>Detect and save the monitor and audio device currently used by the system into this profile.</source>
-        <translation>Определить и сохранить текущий монитор и аудиоустройство системы в этот профиль.</translation>
-    </message>
-    <message>
-        <source>Use current settings</source>
-        <translation>Захватить текущие настройки</translation>
-    </message>
-    <message>
-        <source>Automation</source>
-        <translation>Автоматизация</translation>
-    </message>
-    <message>
-        <source>List of applications to launch when this profile is activated.</source>
-        <translation>Список приложений для запуска при активации этого профиля.</translation>
-    </message>
-    <message>
-        <source>Settings</source>
-        <translation>Настройки</translation>
-    </message>
-    <message>
-        <source>More options</source>
-        <translation>Дополнительно</translation>
-    </message>
-    <message>
-        <source>About</source>
-        <translation>О программе</translation>
     </message>
 </context>
 </TS>
