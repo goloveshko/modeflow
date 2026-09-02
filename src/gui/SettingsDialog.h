@@ -7,6 +7,7 @@
 #include "ConfigTypes.h"
 
 namespace ModeFlow::Core {
+class IDialogManager;
 class IWorkspaceManager;
 class ISettingsManager;
 } // namespace ModeFlow::Core
@@ -17,8 +18,6 @@ class SettingsDialog;
 
 namespace ModeFlow::Gui {
 
-class DialogManager;
-
 /**
  * @brief Dialog for application-wide settings.
  *
@@ -27,7 +26,7 @@ class DialogManager;
 class SettingsDialog : public BaseDialog {
     Q_OBJECT
 public:
-    explicit SettingsDialog(DialogManager* dialogManager, Core::ISettingsManager* settingsManager,
+    explicit SettingsDialog(Core::IDialogManager* dialogManager, Core::ISettingsManager* settingsManager,
                             Core::IWorkspaceManager* workspaceManager, Core::IStyleManager* styleManager,
                             QWidget* parent = nullptr);
     ~SettingsDialog();
@@ -89,7 +88,7 @@ private:
     std::unique_ptr<Ui::SettingsDialog> ui;
     Core::ISettingsManager* m_settingsManager;
     Core::IWorkspaceManager* m_workspaceManager;
-    DialogManager* m_dialogManager = nullptr;
+    Core::IDialogManager* m_dialogManager = nullptr;
     FormState m_initialState;
     bool m_isValidatingHotkey = false;
 };

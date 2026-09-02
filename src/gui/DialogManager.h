@@ -1,8 +1,8 @@
 ﻿#pragma once
 
-#include <QObject>
+#include <QList>
 
-#include "ConfigTypes.h"
+#include "IDialogManager.h"
 
 class QWidget;
 
@@ -13,62 +13,62 @@ struct AppServices;
 namespace ModeFlow::Gui {
 
 /**
- * @brief Unified Facade and Presenter for all application dialogs, alerts, and file pickers.
+ * @brief Concrete Facade and Presenter for all application dialogs, alerts, and file pickers.
  */
-class DialogManager : public QObject {
+class DialogManager : public Core::IDialogManager {
     Q_OBJECT
-    Q_PROPERTY(Core::ActiveDialog activeDialog READ activeDialog WRITE setActiveDialog NOTIFY activeDialogChanged)
+    Q_INTERFACES(ModeFlow::Core::IDialogManager)
 
 public:
     explicit DialogManager(Core::AppServices& services, QObject* parent = nullptr);
     ~DialogManager() override;
 
-    Core::ActiveDialog activeDialog() const { return m_activeDialog; }
-    void setActiveDialog(Core::ActiveDialog dialog);
+    Core::ActiveDialog activeDialog() const override { return m_activeDialog; }
+    void setActiveDialog(Core::ActiveDialog dialog) override;
 
     QWidget* parentWindow() const;
 
     // --- 1. Top-Level Modal App Windows ---
-    virtual void showAboutDialog();
-    virtual void showLogViewerDialog();
-    virtual void showSettingsDialog();
-    virtual void showUpdateDialog();
+    void showAboutDialog() override;
+    void showLogViewerDialog() override;
+    void showSettingsDialog() override;
+    void showUpdateDialog() override;
 
-    virtual void forceUpdateCheck();
+    void forceUpdateCheck() override;
 
     // --- 2. Action Confirmations ---
-    virtual bool confirmApplyProfile(const Core::WorkspaceConfig& config);
-    virtual bool confirmAction(const QString& title, const QString& text);
-    virtual bool confirmAction(QWidget* parent, const QString& title, const QString& text);
+    bool confirmApplyProfile(const Core::WorkspaceConfig& config) override;
+    bool confirmAction(const QString& title, const QString& text) override;
+    bool confirmAction(QWidget* parent, const QString& title, const QString& text) override;
 
     // --- 3. Message Box Alerts ---
-    virtual void showInfo(const QString& title, const QString& text);
-    virtual void showInfo(QWidget* parent, const QString& title, const QString& text);
+    void showInfo(const QString& title, const QString& text) override;
+    void showInfo(QWidget* parent, const QString& title, const QString& text) override;
 
-    virtual void showWarning(const QString& title, const QString& text);
-    virtual void showWarning(QWidget* parent, const QString& title, const QString& text);
+    void showWarning(const QString& title, const QString& text) override;
+    void showWarning(QWidget* parent, const QString& title, const QString& text) override;
 
-    virtual void showError(const QString& title, const QString& text);
-    virtual void showError(QWidget* parent, const QString& title, const QString& text);
+    void showError(const QString& title, const QString& text) override;
+    void showError(QWidget* parent, const QString& title, const QString& text) override;
+
+    int showMessageBox(QWidget* parent, QMessageBox::Icon icon, const QString& title, const QString& text,
+                       const QString& informativeText = QString(), const QStringList& buttons = QStringList(),
+                       int defaultButtonIndex = 0) override;
 
     // --- 4. File Dialog Pickers ---
-    virtual QString getOpenFileName(const QString& caption, const QString& dir = QString(),
-                                    const QString& filter = QString());
-    virtual QString getOpenFileName(QWidget* parent, const QString& caption, const QString& dir = QString(),
-                                    const QString& filter = QString());
+    QString getOpenFileName(const QString& caption, const QString& dir = QString(),
+                            const QString& filter = QString()) override;
+    QString getOpenFileName(QWidget* parent, const QString& caption, const QString& dir = QString(),
+                            const QString& filter = QString()) override;
 
-    virtual QString getSaveFileName(const QString& caption, const QString& dir = QString(),
-                                    const QString& filter = QString());
-    virtual QString getSaveFileName(QWidget* parent, const QString& caption, const QString& dir = QString(),
-                                    const QString& filter = QString());
+    QString getSaveFileName(const QString& caption, const QString& dir = QString(),
+                            const QString& filter = QString()) override;
+    QString getSaveFileName(QWidget* parent, const QString& caption, const QString& dir = QString(),
+                            const QString& filter = QString()) override;
 
     // --- 5. App Launch Configuration Dialog ---
-    virtual std::optional<Core::AppLaunchConfig>
-    showAppLaunchDialog(const Core::AppLaunchConfig* initialConfig = nullptr, QWidget* parent = nullptr);
-
-signals:
-    void activeDialogChanged(ModeFlow::Core::ActiveDialog activeDialog);
-    void settingsAccepted(const QString& oldLang, ModeFlow::Core::Theme oldTheme);
+    std::optional<Core::AppLaunchConfig> showAppLaunchDialog(const Core::AppLaunchConfig* initialConfig = nullptr,
+                                                             QWidget* parent = nullptr) override;
 
 private:
     struct DialogGuard {

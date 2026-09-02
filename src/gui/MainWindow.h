@@ -12,6 +12,7 @@
 #include "ConfigTypes.h"
 
 namespace ModeFlow::Core {
+class IDialogManager;
 class IWorkspaceManager;
 class ISettingsManager;
 } // namespace ModeFlow::Core
@@ -21,7 +22,6 @@ class MainWindow;
 }
 
 namespace ModeFlow::Gui {
-class DialogManager;
 class SettingsDialog;
 class ProfileIconMenu;
 class ProfileTransfer;
@@ -31,7 +31,7 @@ class MainWindow : public BaseDialog {
     Q_OBJECT
 public:
     MainWindow(Core::IWorkspaceManager* workspaceManager, Core::ISettingsManager* settingsManager,
-               Core::IStyleManager* sm, DialogManager* dialogManager, QWidget* parent = nullptr);
+               Core::IStyleManager* sm, Core::IDialogManager* dialogManager, QWidget* parent = nullptr);
     ~MainWindow();
 
     void raiseWindow();
@@ -108,7 +108,7 @@ private:
     std::unique_ptr<Ui::MainWindow> ui;
     Core::IWorkspaceManager* m_workspaceManager;
     Core::ISettingsManager* m_settingsManager;
-    DialogManager* m_dialogManager;
+    Core::IDialogManager* m_dialogManager;
 
     ProfileIconMenu* m_profileIconMenu = nullptr;
     std::unique_ptr<ProfileTransfer> m_profileTransfer;

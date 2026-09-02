@@ -5,9 +5,9 @@
 #include <QToolTip>
 
 #include "Constants.h"
-#include "DialogManager.h"
 #include "FontAwesome.h"
 #include "HotkeyValidator.h"
+#include "IDialogManager.h"
 #include "ISettingsManager.h"
 #include "IStyleManager.h"
 #include "IWorkspaceManager.h"
@@ -28,7 +28,7 @@ int resolvedIconExtent(const QSize& iconSize, int fallback) {
 } // namespace
 
 MainWindow::MainWindow(Core::IWorkspaceManager* workspaceManager, Core::ISettingsManager* settingsManager,
-                       Core::IStyleManager* sm, DialogManager* dialogManager, QWidget* parent)
+                       Core::IStyleManager* sm, Core::IDialogManager* dialogManager, QWidget* parent)
     : BaseDialog(sm, parent), ui(std::make_unique<Ui::MainWindow>()), m_workspaceManager(workspaceManager),
       m_settingsManager(settingsManager), m_dialogManager(dialogManager) {
     Q_ASSERT(m_workspaceManager);
@@ -110,10 +110,10 @@ void MainWindow::initMoreMenu() {
     m_moreMenu->addSeparator();
 
     m_checkUpdatesAction = addMenuAction(m_moreMenu, FontAwesome::CloudArrowDown, QString(), m_dialogManager,
-                                         &DialogManager::forceUpdateCheck);
+                                         &Core::IDialogManager::forceUpdateCheck);
 
     addMenuAction(m_moreMenu, FontAwesome::FileLines, tr("View Log"), m_dialogManager,
-                  &DialogManager::showLogViewerDialog);
+                  &Core::IDialogManager::showLogViewerDialog);
 
     ui->btnMore->setMenu(m_moreMenu);
     ui->btnMore->setPopupMode(QToolButton::InstantPopup);

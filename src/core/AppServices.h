@@ -15,12 +15,12 @@ class AutostartManager;
 namespace ModeFlow::Gui {
 class MainWindow;
 class TrayController;
-class DialogManager;
 } // namespace ModeFlow::Gui
 
 namespace ModeFlow::Core {
 
 class ConfigManager;
+class IDialogManager;
 class LocalizationManager;
 class WorkspaceService;
 class WorkspaceManager;
@@ -53,7 +53,7 @@ struct AppServices {
 
     std::unique_ptr<Gui::MainWindow> mainWindow;
     std::unique_ptr<Gui::TrayController> trayController;
-    std::unique_ptr<Gui::DialogManager> dialogManager;
+    std::unique_ptr<IDialogManager> dialogManager;
 };
 
 } // namespace ModeFlow::Core

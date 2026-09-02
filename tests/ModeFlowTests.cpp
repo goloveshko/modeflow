@@ -13,19 +13,19 @@
 #include <QPair>
 #include <QPoint>
 #include <QSize>
+#include <optional>
 
 #include "AppLauncher.h"
-#include "AppServices.h"
 #include "AudioDeviceManager.h"
 #include "AutostartManager.h"
 #include "CliParser.h"
 #include "CommandLineBuilder.h"
 #include "ConfigManager.h"
 #include "ConfigTypes.h"
-#include "DialogManager.h"
 #include "DisplayManager.h"
 #include "HotkeyEdit.h"
 #include "HotkeyManager.h"
+#include "IDialogManager.h"
 #include "ISettingsManager.h"
 #include "IStyleManager.h"
 #include "IWorkspaceManager.h"
@@ -373,11 +373,35 @@ public:
     bool m_launchShouldFail = false;
 };
 
-class FakeDialogManager : public ModeFlow::Gui::DialogManager {
+class FakeDialogManager : public ModeFlow::Core::IDialogManager {
 public:
-    inline static ModeFlow::Core::AppServices dummyServices;
+    FakeDialogManager() = default;
 
-    FakeDialogManager() : DialogManager(dummyServices) {}
+    ModeFlow::Core::ActiveDialog activeDialog() const override { return ModeFlow::Core::ActiveDialog::None; }
+    void setActiveDialog(ModeFlow::Core::ActiveDialog dialog) override { Q_UNUSED(dialog); }
+
+    void showAboutDialog() override {}
+    void showLogViewerDialog() override {}
+    void showSettingsDialog() override {}
+    void showUpdateDialog() override {}
+    void forceUpdateCheck() override {}
+
+    std::optional<ModeFlow::Core::AppLaunchConfig>
+    showAppLaunchDialog(const ModeFlow::Core::AppLaunchConfig* initialConfig = nullptr,
+                        QWidget* parent = nullptr) override {
+        Q_UNUSED(initialConfig);
+        Q_UNUSED(parent);
+        return std::nullopt;
+    }
+
+    bool confirmApplyProfile(const ModeFlow::Core::WorkspaceConfig& config) override {
+        lastConfirmedProfileId = config.id;
+        return confirmResult;
+    }
+
+    bool confirmAction(const QString& title, const QString& text) override {
+        return confirmAction(nullptr, title, text);
+    }
 
     bool confirmAction(QWidget* parent, const QString& title, const QString& text) override {
         Q_UNUSED(parent);
@@ -386,10 +410,15 @@ public:
         return confirmResult;
     }
 
-    bool confirmApplyProfile(const ModeFlow::Core::WorkspaceConfig& config) override {
-        lastConfirmedProfileId = config.id;
-        return confirmResult;
+    void showInfo(const QString& title, const QString& text) override { showInfo(nullptr, title, text); }
+
+    void showInfo(QWidget* parent, const QString& title, const QString& text) override {
+        Q_UNUSED(parent);
+        lastWarningTitle = title;
+        lastWarningText = text;
     }
+
+    void showWarning(const QString& title, const QString& text) override { showWarning(nullptr, title, text); }
 
     void showWarning(QWidget* parent, const QString& title, const QString& text) override {
         Q_UNUSED(parent);
@@ -397,12 +426,66 @@ public:
         lastWarningText = text;
     }
 
+    void showError(const QString& title, const QString& text) override { showError(nullptr, title, text); }
+
+    void showError(QWidget* parent, const QString& title, const QString& text) override {
+        Q_UNUSED(parent);
+        lastErrorTitle = title;
+        lastErrorText = text;
+    }
+
+    int showMessageBox(QWidget* parent, QMessageBox::Icon icon, const QString& title, const QString& text,
+                       const QString& informativeText = QString(), const QStringList& buttons = QStringList(),
+                       int defaultButtonIndex = 0) override {
+        Q_UNUSED(parent);
+        Q_UNUSED(icon);
+        Q_UNUSED(title);
+        Q_UNUSED(text);
+        Q_UNUSED(informativeText);
+        Q_UNUSED(buttons);
+        Q_UNUSED(defaultButtonIndex);
+        return mockResult;
+    }
+
+    QString getOpenFileName(const QString& caption, const QString& dir = QString(),
+                            const QString& filter = QString()) override {
+        return getOpenFileName(nullptr, caption, dir, filter);
+    }
+
+    QString getOpenFileName(QWidget* parent, const QString& caption, const QString& dir = QString(),
+                            const QString& filter = QString()) override {
+        Q_UNUSED(parent);
+        Q_UNUSED(caption);
+        Q_UNUSED(dir);
+        Q_UNUSED(filter);
+        return mockOpenPath;
+    }
+
+    QString getSaveFileName(const QString& caption, const QString& dir = QString(),
+                            const QString& filter = QString()) override {
+        return getSaveFileName(nullptr, caption, dir, filter);
+    }
+
+    QString getSaveFileName(QWidget* parent, const QString& caption, const QString& dir = QString(),
+                            const QString& filter = QString()) override {
+        Q_UNUSED(parent);
+        Q_UNUSED(caption);
+        Q_UNUSED(dir);
+        Q_UNUSED(filter);
+        return mockSavePath;
+    }
+
     bool confirmResult = true;
     QString lastConfirmTitle;
     QString lastConfirmText;
     QString lastWarningTitle;
     QString lastWarningText;
+    QString lastErrorTitle;
+    QString lastErrorText;
     QString lastConfirmedProfileId;
+    int mockResult = 0;
+    QString mockOpenPath;
+    QString mockSavePath;
 };
 
 } // namespace

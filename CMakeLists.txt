@@ -80,6 +80,7 @@ set(COMMON_SOURCES
     src/core/CommandLineBuilder.cpp src/core/CommandLineBuilder.h
     src/core/ConfigManager.cpp src/core/ConfigManager.h
     src/core/ConfigTypes.cpp src/core/ConfigTypes.h
+    src/core/IDialogManager.h
     src/core/ISettingsManager.h
     src/core/IStyleManager.h
     src/core/IWorkspaceManager.h

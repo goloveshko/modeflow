@@ -7,14 +7,17 @@ namespace Ui {
 class AppLaunchDialog;
 }
 
-namespace ModeFlow::Gui {
+namespace ModeFlow::Core {
+class IDialogManager;
+class IStyleManager;
+} // namespace ModeFlow::Core
 
-class DialogManager;
+namespace ModeFlow::Gui {
 
 class AppLaunchDialog : public BaseDialog {
     Q_OBJECT
 public:
-    explicit AppLaunchDialog(DialogManager* dialogManager, Core::IStyleManager* styleManager,
+    explicit AppLaunchDialog(Core::IDialogManager* dialogManager, Core::IStyleManager* styleManager,
                              QWidget* parent = nullptr);
     ~AppLaunchDialog() override;
 
@@ -27,7 +30,7 @@ private slots:
 
 private:
     std::unique_ptr<Ui::AppLaunchDialog> ui;
-    DialogManager* m_dialogManager = nullptr;
+    Core::IDialogManager* m_dialogManager = nullptr;
 };
 
 } // namespace ModeFlow::Gui

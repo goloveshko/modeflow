@@ -7,9 +7,9 @@
 #include <QMimeData>
 #include <QToolButton>
 
-#include "DialogManager.h"
 #include "FluentItemDelegate.h"
 #include "FontAwesome.h"
+#include "IDialogManager.h"
 
 namespace ModeFlow::Gui {
 
@@ -22,7 +22,7 @@ AppListWidget::AppListWidget(QWidget* parent) : QListWidget(parent) {
 
 AppListWidget::~AppListWidget() = default;
 
-void AppListWidget::setDialogManager(DialogManager* dialogManager) {
+void AppListWidget::setDialogManager(Core::IDialogManager* dialogManager) {
     m_dialogManager = dialogManager;
 }
 

@@ -5,9 +5,11 @@
 
 #include "ConfigTypes.h"
 
-namespace ModeFlow::Gui {
+namespace ModeFlow::Core {
+class IDialogManager;
+}
 
-class DialogManager;
+namespace ModeFlow::Gui {
 
 class AppListWidget : public QListWidget {
     Q_OBJECT
@@ -15,7 +17,7 @@ public:
     explicit AppListWidget(QWidget* parent = nullptr);
     ~AppListWidget() override;
 
-    void setDialogManager(DialogManager* dialogManager);
+    void setDialogManager(Core::IDialogManager* dialogManager);
 
     void setApps(const QList<Core::AppLaunchConfig>& apps);
     QList<Core::AppLaunchConfig> apps() const;
@@ -42,7 +44,7 @@ private:
     void appendAddPlaceholderItem();
 
 private:
-    DialogManager* m_dialogManager = nullptr;
+    Core::IDialogManager* m_dialogManager = nullptr;
     QList<Core::AppLaunchConfig> m_apps;
 };
 

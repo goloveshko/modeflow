@@ -1,5 +1,6 @@
 ﻿#include "DialogManager.h"
 
+#include <QMessageBox>
 #include <QTimer>
 
 #include "AboutDialog.h"
@@ -19,7 +20,8 @@
 
 namespace ModeFlow::Gui {
 
-DialogManager::DialogManager(Core::AppServices& services, QObject* parent) : QObject(parent), m_services(services) {}
+DialogManager::DialogManager(Core::AppServices& services, QObject* parent)
+    : Core::IDialogManager(parent), m_services(services) {}
 
 DialogManager::~DialogManager() = default;
 
@@ -226,6 +228,12 @@ void DialogManager::showError(const QString& title, const QString& text) {
 
 void DialogManager::showError(QWidget* parent, const QString& title, const QString& text) {
     m_services.styleManager->showError(resolveParent(parent), title, text);
+}
+
+int DialogManager::showMessageBox(QWidget* parent, QMessageBox::Icon icon, const QString& title, const QString& text,
+                                  const QString& informativeText, const QStringList& buttons, int defaultButtonIndex) {
+    return m_services.styleManager->showMessageBox(resolveParent(parent), icon, title, text, informativeText, buttons,
+                                                   defaultButtonIndex);
 }
 
 // --- 4. File Dialog Pickers ---

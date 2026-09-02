@@ -8,17 +8,18 @@
 
 #include "AutostartManager.h"
 #include "HotkeyValidator.h"
+#include "IDialogManager.h"
 #include "ISettingsManager.h"
 #include "IWorkspaceManager.h"
-#include "Logging.h"
 #include "LogManager.h"
+#include "Logging.h"
 #include "StyleUtils.h"
 
 namespace ModeFlow::Gui {
 
 using namespace Qt::StringLiterals;
 
-SettingsDialog::SettingsDialog(DialogManager* dialogManager, Core::ISettingsManager* settingsManager,
+SettingsDialog::SettingsDialog(Core::IDialogManager* dialogManager, Core::ISettingsManager* settingsManager,
                                Core::IWorkspaceManager* workspaceManager, Core::IStyleManager* styleManager,
                                QWidget* parent)
     : BaseDialog(styleManager, parent), ui(std::make_unique<Ui::SettingsDialog>()), m_dialogManager(dialogManager),

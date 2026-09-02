@@ -4,14 +4,16 @@
 #include <QPointer>
 #include <QString>
 
+class QWidget;
+
 namespace ModeFlow::Core {
+class IDialogManager;
 class IWorkspaceManager;
 class ISettingsManager;
 } // namespace ModeFlow::Core
 
 namespace ModeFlow::Gui {
 
-class DialogManager;
 class HotkeyEdit;
 
 /**
@@ -20,7 +22,7 @@ class HotkeyEdit;
 class HotkeyValidator {
 public:
     HotkeyValidator(Core::IWorkspaceManager* workspaceManager, Core::ISettingsManager* settingsManager,
-                    DialogManager* dialogManager);
+                    Core::IDialogManager* dialogManager);
 
     // Validates the global "Next profile" hotkey
     bool validateNextProfileHotkey(HotkeyEdit* edit, QWidget* parent = nullptr);
@@ -35,7 +37,7 @@ private:
 
     Core::IWorkspaceManager* m_workspaceManager;
     Core::ISettingsManager* m_settingsManager;
-    DialogManager* m_dialogManager;
+    Core::IDialogManager* m_dialogManager;
 };
 
 } // namespace ModeFlow::Gui

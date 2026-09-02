@@ -9,19 +9,19 @@ class LogViewerDialog;
 }
 
 namespace ModeFlow::Core {
+class IDialogManager;
 class ISettingsManager;
 } // namespace ModeFlow::Core
 
 namespace ModeFlow::Gui {
 
 class LogHighlighter;
-class DialogManager;
 
 class LogViewerDialog : public BaseDialog {
     Q_OBJECT
 
 public:
-    explicit LogViewerDialog(DialogManager* dialogManager, Core::ISettingsManager* settingsManager,
+    explicit LogViewerDialog(Core::IDialogManager* dialogManager, Core::ISettingsManager* settingsManager,
                              Core::IStyleManager* styleManager, QWidget* parent = nullptr);
     ~LogViewerDialog() override;
 
@@ -70,7 +70,7 @@ private:
 
     std::unique_ptr<Ui::LogViewerDialog> ui;
     Core::ISettingsManager* m_settingsManager = nullptr;
-    DialogManager* m_dialogManager = nullptr;
+    Core::IDialogManager* m_dialogManager = nullptr;
     LogHighlighter* m_highlighter = nullptr;
     QString m_logFilePath;
     QList<LogEntry> m_allEntries;

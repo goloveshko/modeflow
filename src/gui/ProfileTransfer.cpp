@@ -1,6 +1,6 @@
 ﻿#include "ProfileTransfer.h"
 
-#include "DialogManager.h"
+#include "IDialogManager.h"
 #include "IWorkspaceManager.h"
 #include "ProfileSerializer.h"
 
@@ -8,7 +8,7 @@ namespace ModeFlow::Gui {
 
 using namespace Qt::StringLiterals;
 
-ProfileTransfer::ProfileTransfer(Core::IWorkspaceManager* wm, DialogManager* dialogManager, QObject* parent)
+ProfileTransfer::ProfileTransfer(Core::IWorkspaceManager* wm, Core::IDialogManager* dialogManager, QObject* parent)
     : QObject(parent), m_workspaceManager(wm), m_dialogManager(dialogManager) {
     Q_ASSERT(m_workspaceManager);
     Q_ASSERT(m_dialogManager);

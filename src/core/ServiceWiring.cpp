@@ -5,9 +5,9 @@
 #include "AudioDeviceManager.h"
 #include "AudioFeedbackService.h"
 #include "ConfigManager.h"
-#include "DialogManager.h"
 #include "DisplayManager.h"
 #include "HotkeyManager.h"
+#include "IDialogManager.h"
 #include "LocalizationManager.h"
 #include "Logging.h"
 #include "MainWindow.h"
@@ -69,12 +69,12 @@ void ServiceWiring::wireServiceConnections(AppServices& s, AppController* contro
     QObject::connect(s.trayController.get(), &Gui::TrayController::showMainWindow, controller,
                      &AppController::raiseMainWindow, Qt::UniqueConnection);
     QObject::connect(s.trayController.get(), &Gui::TrayController::showSettingsDialog, s.dialogManager.get(),
-                     &Gui::DialogManager::showSettingsDialog, Qt::UniqueConnection);
+                     &Core::IDialogManager::showSettingsDialog, Qt::UniqueConnection);
 
-    QObject::connect(s.dialogManager.get(), &Gui::DialogManager::settingsAccepted, controller,
+    QObject::connect(s.dialogManager.get(), &Core::IDialogManager::settingsAccepted, controller,
                      &AppController::handleSettingsChanges, Qt::UniqueConnection);
 
-    QObject::connect(s.dialogManager.get(), &Gui::DialogManager::activeDialogChanged, s.trayController.get(),
+    QObject::connect(s.dialogManager.get(), &Core::IDialogManager::activeDialogChanged, s.trayController.get(),
                      &Gui::TrayController::activeDialogChanged, Qt::UniqueConnection);
 
     QObject::connect(s.trayController.get(), &Gui::TrayController::activateProfile, controller,
@@ -103,13 +103,13 @@ void ServiceWiring::wireWindowConnections(AppServices& s, AppController* control
                      &Services::HotkeyManager::setCaptureMode, Qt::UniqueConnection);
 
     QObject::connect(s.mainWindow.get(), &Gui::MainWindow::showSettingsDialog, s.dialogManager.get(),
-                     &Gui::DialogManager::showSettingsDialog, Qt::UniqueConnection);
+                     &Core::IDialogManager::showSettingsDialog, Qt::UniqueConnection);
     QObject::connect(s.mainWindow.get(), &Gui::MainWindow::showAboutDialog, s.dialogManager.get(),
-                     &Gui::DialogManager::showAboutDialog, Qt::UniqueConnection);
+                     &Core::IDialogManager::showAboutDialog, Qt::UniqueConnection);
     QObject::connect(s.mainWindow.get(), &Gui::MainWindow::showUpdateDialog, s.dialogManager.get(),
-                     &Gui::DialogManager::showUpdateDialog, Qt::UniqueConnection);
+                     &Core::IDialogManager::showUpdateDialog, Qt::UniqueConnection);
     QObject::connect(s.mainWindow.get(), &Gui::MainWindow::showLogViewer, s.dialogManager.get(),
-                     &Gui::DialogManager::showLogViewerDialog, Qt::UniqueConnection);
+                     &Core::IDialogManager::showLogViewerDialog, Qt::UniqueConnection);
 
     auto* window = s.mainWindow.get();
     QObject::connect(s.workspaceService.get(), &WorkspaceService::configApplyFinished, window,

@@ -1,9 +1,10 @@
-﻿#include <QCoreApplication>
+﻿#include "HotkeyValidator.h"
+
+#include <QCoreApplication>
 #include <QStringBuilder>
 
-#include "DialogManager.h"
 #include "HotkeyEdit.h"
-#include "HotkeyValidator.h"
+#include "IDialogManager.h"
 #include "ISettingsManager.h"
 #include "IWorkspaceManager.h"
 
@@ -12,7 +13,7 @@ using namespace Qt::StringLiterals;
 namespace ModeFlow::Gui {
 
 HotkeyValidator::HotkeyValidator(Core::IWorkspaceManager* workspaceManager, Core::ISettingsManager* settingsManager,
-                                 DialogManager* dialogManager)
+                                 Core::IDialogManager* dialogManager)
     : m_workspaceManager(workspaceManager), m_settingsManager(settingsManager), m_dialogManager(dialogManager) {
     Q_ASSERT(m_workspaceManager);
     Q_ASSERT(m_settingsManager);

@@ -2,13 +2,14 @@
 
 #include "ui_AppLaunchDialog.h"
 
-#include "DialogManager.h"
 #include "FontAwesome.h"
+#include "IDialogManager.h"
 #include "SystemUtils.h"
 
 namespace ModeFlow::Gui {
 
-AppLaunchDialog::AppLaunchDialog(DialogManager* dialogManager, Core::IStyleManager* styleManager, QWidget* parent)
+AppLaunchDialog::AppLaunchDialog(Core::IDialogManager* dialogManager, Core::IStyleManager* styleManager,
+                                 QWidget* parent)
     : BaseDialog(styleManager, parent), ui(std::make_unique<Ui::AppLaunchDialog>()), m_dialogManager(dialogManager) {
     Q_ASSERT(m_dialogManager);
     ui->setupUi(this);

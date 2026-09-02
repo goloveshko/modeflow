@@ -7,8 +7,8 @@
 #include <QProcess>
 #include <QScrollBar>
 
-#include "DialogManager.h"
 #include "FontAwesome.h"
+#include "IDialogManager.h"
 #include "ISettingsManager.h"
 #include "IStyleManager.h"
 #include "LogHighlighter.h"
@@ -24,7 +24,7 @@ constexpr int FilterDebounceMs = 150;
 constexpr int MaxLogEntries = 50000;
 } // namespace
 
-LogViewerDialog::LogViewerDialog(DialogManager* dialogManager, Core::ISettingsManager* settingsManager,
+LogViewerDialog::LogViewerDialog(Core::IDialogManager* dialogManager, Core::ISettingsManager* settingsManager,
                                  Core::IStyleManager* styleManager, QWidget* parent)
     : BaseDialog(styleManager, parent), ui(std::make_unique<Ui::LogViewerDialog>()), m_dialogManager(dialogManager),
       m_settingsManager(settingsManager) {
