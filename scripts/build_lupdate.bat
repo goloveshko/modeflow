@@ -1,3 +1,3 @@
 @echo off
-rem Convenience wrapper - equivalent to: build.bat --lupdate [...]
+rem Convenience wrapper: build.bat --lupdate [...]
 call "%~dp0build.bat" --lupdate %*

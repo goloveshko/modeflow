@@ -1,3 +1,3 @@
 @echo off
-rem Convenience wrapper - equivalent to: build.bat --release --static --ninja --package [...]
+rem Convenience wrapper: build.bat --format  [...]
 call "%~dp0build.bat" --format %*

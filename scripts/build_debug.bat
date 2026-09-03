@@ -1,3 +1,3 @@
 @echo off
-rem Convenience wrapper - equivalent to: build.bat --debug [...]
+rem Convenience wrapper: build.bat --debug --ninja  [...]
 call "%~dp0build.bat" --debug --ninja %*

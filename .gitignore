@@ -67,4 +67,4 @@ build/
 out/
 vcpkg_installed/
 
-scripts/environment.bat
+scripts/environment.ps1
