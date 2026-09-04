@@ -17,7 +17,7 @@ include(QtTranslations)
 include(WindowsDependencies)
 include(AppResources)
 
-set(SITE_URL "https://goloveshko.github.io"
+set(SITE_URL "https://sergey.is-a.dev"
     CACHE STRING "The project website URL")
 set(UPDATE_URL "https://raw.githubusercontent.com/goloveshko/ModeFlow/main/metadata/update.json"
     CACHE STRING "The dynamic URL for auto-update manifest checks")

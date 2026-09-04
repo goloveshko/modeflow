@@ -16,13 +16,13 @@
 #define APP_INTERNAL_NAME "ModeFlow"
 #define APP_EXECUTABLE_NAME APP_INTERNAL_NAME ".exe"
 #define APP_PRODUCT_NAME APP_INTERNAL_NAME " - Workspace Manager"
-#define APP_DOMAIN "goloveshko.github.io"
+#define APP_DOMAIN "sergey.is-a.dev"
 #define APP_ICON_PATH "ModeFlow.ico"
 #define APP_COPYRIGHT "Copyright (C) " APP_COPYRIGHT_YEAR " " APP_COMPANY_NAME
 
 // Dynamic URLs with CMake override support
 #ifndef SITE_URL
-#define SITE_URL "https://goloveshko.github.io"
+#define SITE_URL "https://sergey.is-a.dev"
 #endif
 
 #ifndef LICENSE_URL

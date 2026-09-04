@@ -96,7 +96,7 @@ if (Test-Path $EnvPs1) {
 }
 
 # Production Defaults (if not set in environment)
-if (-not $env:SITE_URL) { $env:SITE_URL = "https://goloveshko.github.io" }
+if (-not $env:SITE_URL) { $env:SITE_URL = "https://sergey.is-a.dev" }
 if (-not $env:UPDATE_URL) { $env:UPDATE_URL = "https://raw.githubusercontent.com/goloveshko/ModeFlow/main/metadata/update.json" }
 if (-not $env:LICENSE_URL) { $env:LICENSE_URL = "https://github.com/goloveshko/ModeFlow/blob/main/LICENSE" }
 if (-not $env:GIT_HOST_URL) { $env:GIT_HOST_URL = "https://github.com/goloveshko/ModeFlow" }

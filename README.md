@@ -114,5 +114,5 @@ This application is **statically linked** with the Qt Framework under the terms 
 Developed with ❤️ by a professional C++ & Qt developer.
 
 - **Telegram Support Bot**: [@itz2bot](https://t.me/itz2bot?start=github_readme)
-- **Portfolio**: [goloveshko.github.io](https://goloveshko.github.io)
+- **Portfolio**: [sergey.is-a.dev](https://sergey.is-a.dev)
 - **GitHub Issues**: [Report a bug](https://github.com/goloveshko/ModeFlow/issues)
