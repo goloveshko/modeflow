@@ -10,7 +10,7 @@ QFileDialog {
 /* ── 2. Buttons ───────────────────────────────────────────── */
 QToolButton {
     color: rgba(0, 0, 0, 0.6);
-    background-color: transparent;Ы
+    background-color: transparent;
     border: none;
     border-radius: 6px;
     padding: 6px;
