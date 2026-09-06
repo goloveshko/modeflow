@@ -379,9 +379,10 @@ void MainWindow::showEvent(QShowEvent* event) {
 void MainWindow::closeEvent(QCloseEvent* event) {
     emit hotkeyCaptureChanged(false);
 
-    // Stop the autosave timer safely.
-    // If the timer is active (meaning there are pending unsaved edits), force write them now.
-    // If no edits were made, we avoid redundant disk I/O and heavy hotkey re-registrations on hide!
+    if (event->spontaneous()) {
+        m_settingsManager->setMainWindowVisible(false);
+    }
+
     if (m_autosaveTimer) {
         if (m_autosaveTimer->isActive()) {
             m_autosaveTimer->stop();
@@ -419,6 +420,7 @@ QModelIndex MainWindow::currentIndex() const {
 bool MainWindow::toggleVisibility() {
     if (isVisible()) {
         emit hotkeyCaptureChanged(false);
+        m_settingsManager->setMainWindowVisible(false);
         hide();
         return false;
     }
