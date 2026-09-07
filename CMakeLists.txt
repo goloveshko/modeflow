@@ -17,8 +17,8 @@ include(QtTranslations)
 include(WindowsDependencies)
 include(AppResources)
 
-set(SITE_URL "https://sergey.is-a.dev"
-    CACHE STRING "The project website URL")
+set(GITHUB_URL "https://github.com/goloveshko/ModeFlow"
+    CACHE STRING "The project GitHub repository URL")
 set(UPDATE_URL "https://raw.githubusercontent.com/goloveshko/ModeFlow/main/metadata/update.json"
     CACHE STRING "The dynamic URL for auto-update manifest checks")
 set(LICENSE_URL "https://github.com/goloveshko/ModeFlow/blob/main/LICENSE"
@@ -176,7 +176,7 @@ link_windows_system_libs(${CORE_TARGET})
 target_compile_definitions(${CORE_TARGET} PUBLIC QT_MESSAGELOGCONTEXT)
 
 # Inject the dynamic update URL definition to the preprocessor for both static and shared builds
-target_compile_definitions(${CORE_TARGET} PUBLIC "SITE_URL=\"${SITE_URL}\"")
+target_compile_definitions(${CORE_TARGET} PUBLIC "GITHUB_URL=\"${GITHUB_URL}\"")
 target_compile_definitions(${CORE_TARGET} PUBLIC "UPDATE_URL=\"${UPDATE_URL}\"")
 target_compile_definitions(${CORE_TARGET} PUBLIC "LICENSE_URL=\"${LICENSE_URL}\"")
 

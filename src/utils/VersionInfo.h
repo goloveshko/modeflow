@@ -21,8 +21,8 @@
 #define APP_COPYRIGHT "Copyright (C) " APP_COPYRIGHT_YEAR " " APP_COMPANY_NAME
 
 // Dynamic URLs with CMake override support
-#ifndef SITE_URL
-#define SITE_URL "https://sergey.is-a.dev"
+#ifndef GITHUB_URL
+#define GITHUB_URL "https://github.com/goloveshko/ModeFlow"
 #endif
 
 #ifndef LICENSE_URL
@@ -42,7 +42,7 @@ inline const QString ProductName = QString::fromLatin1(APP_PRODUCT_NAME);
 inline const QString Copyright = QString::fromUtf8(APP_COPYRIGHT);
 inline const QString Domain = QString::fromLatin1(APP_DOMAIN);
 
-inline const QString SiteUrl = QString::fromLatin1(SITE_URL);
+inline const QString GithubUrl = QString::fromLatin1(GITHUB_URL);
 inline const QString LicenseUrl = QString::fromLatin1(LICENSE_URL);
 inline const QString UpdateManifestUrl = QString::fromLatin1(UPDATE_URL);
 } // namespace ModeFlow::Info

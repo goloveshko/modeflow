@@ -1,4 +1,4 @@
-# ============================================================================
+﻿# ============================================================================
 # ModeFlow – Local Environment Configuration Template
 # Copy this file to "environment.ps1" in the scripts/ folder to override
 # local developer tool paths and test server URLs without modifying build.ps1.
@@ -10,7 +10,7 @@
 # $env:VCPKG_EXE = "C:\dev\vcpkg\vcpkg.exe"
 
 # --- Local Forgejo / Test Server Overrides ---
-# $env:SITE_URL = "http://localhost:3000/{owner}"
+# $env:GITHUB_URL = "http://localhost:3000/{owner}"
 # $env:UPDATE_URL = "http://localhost:3000/{owner}/{repo}/raw/branch/main/metadata/update.json"
 # $env:LICENSE_URL = "http://localhost:3000/{owner}/{repo}/src/branch/main/LICENSE"
 # $env:GIT_HOST_URL = "http://localhost:3000/{owner}/{repo}"

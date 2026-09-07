@@ -1,4 +1,4 @@
-param(
+﻿param(
     [Alias("c")][switch]$Clean,
     [Alias("s")][switch]$Static,
     [Alias("bq", "build-qt")][switch]$BuildQt,
@@ -96,7 +96,7 @@ if (Test-Path $EnvPs1) {
 }
 
 # Production Defaults (if not set in environment)
-if (-not $env:SITE_URL) { $env:SITE_URL = "https://sergey.is-a.dev" }
+if (-not $env:GITHUB_URL) { $env:GITHUB_URL = "https://github.com/goloveshko/ModeFlow" }
 if (-not $env:UPDATE_URL) { $env:UPDATE_URL = "https://raw.githubusercontent.com/goloveshko/ModeFlow/main/metadata/update.json" }
 if (-not $env:LICENSE_URL) { $env:LICENSE_URL = "https://github.com/goloveshko/ModeFlow/blob/main/LICENSE" }
 if (-not $env:GIT_HOST_URL) { $env:GIT_HOST_URL = "https://github.com/goloveshko/ModeFlow" }
@@ -289,7 +289,7 @@ foreach ($Config in $ConfigsToBuild) {
 
     $CmakeArgs = @(
         "--preset", $PresetName,
-        "-DSITE_URL=$($env:SITE_URL)",
+        "-DGITHUB_URL=$($env:GITHUB_URL)",
         "-DUPDATE_URL=$($env:UPDATE_URL)",
         "-DLICENSE_URL=$($env:LICENSE_URL)",
         "-DBUILD_TESTING=$(if ($Test) { 'ON' } else { 'OFF' })"

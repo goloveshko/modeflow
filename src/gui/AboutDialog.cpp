@@ -21,7 +21,7 @@ AboutDialog::AboutDialog(Core::IStyleManager* sm, bool updateAvailable, const QS
     QString version = QCoreApplication::applicationVersion();
     ui->labelVersion->setText(tr("Version %1").arg(version));
 
-    connect(ui->btnGithub, &QPushButton::clicked, this, []() { QDesktopServices::openUrl(QUrl(Info::SiteUrl)); });
+    connect(ui->btnGithub, &QPushButton::clicked, this, []() { QDesktopServices::openUrl(QUrl(Info::GithubUrl)); });
 
     connect(ui->btnLicenses, &QPushButton::clicked, this, &AboutDialog::openLicense);
 
