@@ -41,7 +41,7 @@ Usage: build.bat [OPTIONS]
   -k,  --kill-running  Terminate ModeFlow before build if running
   -p,  --package       Create ZIP package and SHA-256 checksum
   -f,  --format        Run clang-format on src/ folder
-  -dp, --deploy        Run windeployqt for shared builds
+  -dp, --deploy        Run windeployqt for shared builds (auto-detects or uses -d/-r)
   -h,  --help          Show this help message
 
 Convenience wrappers:
@@ -116,6 +116,22 @@ if ($BuildQt) {
     $Static = $true
 }
 
+# Helper to find built executable across standard candidate output directories
+function Find-TargetExecutable([string]$ConfigName) {
+    $Candidates = @(
+        (Join-Path $BuildRoot "bin\$ConfigName\$AppName"),
+        (Join-Path $BuildRoot "ninja-shared\bin\$ConfigName\$AppName"),
+        (Join-Path $BuildRoot "ninja-shared\bin\$AppName"),
+        (Join-Path $BuildRoot "bin\$AppName")
+    )
+    foreach ($Candidate in $Candidates) {
+        if (Test-Path $Candidate) {
+            return $Candidate
+        }
+    }
+    return $null
+}
+
 # ─────────────────────────────────────────────────────────────
 # 2. Kill Running Instance (if requested)
 # ─────────────────────────────────────────────────────────────
@@ -126,17 +142,41 @@ if ($KillRunning) {
 }
 
 # ─────────────────────────────────────────────────────────────
-# 3. Translation Tools (lupdate / lrelease)
+# 3. Translation Tools (lupdate / lrelease) & Qt Dir Detection
 # ─────────────────────────────────────────────────────────────
 # Auto-detect Qt Dir if needed
 if (-not $QtDir) {
     if ($env:QT_DIR) { $QtDir = $env:QT_DIR }
     elseif ($env:Qt6_DIR) { $QtDir = $env:Qt6_DIR }
     else {
-        $QtCandidates = Get-ChildItem -Path "C:\Qt" -Filter "6.*" -Directory -ErrorAction SilentlyContinue | Sort-Object Name -Descending
-        foreach ($Candidate in $QtCandidates) {
-            $MsvcPath = Join-Path $Candidate.FullName "msvc2022_64"
-            if (Test-Path $MsvcPath) { $QtDir = $MsvcPath; break }
+        # Check CMakePresets.json for shared-base CMAKE_PREFIX_PATH
+        $PresetsFile = Join-Path $RootDir "CMakePresets.json"
+        if (Test-Path $PresetsFile) {
+            try {
+                $PresetsJson = Get-Content $PresetsFile -Raw | ConvertFrom-Json
+                $SharedPreset = $PresetsJson.configurePresets | Where-Object { $_.name -eq "shared-base" }
+                if ($SharedPreset -and $SharedPreset.cacheVariables.CMAKE_PREFIX_PATH) {
+                    $PresetQt = $SharedPreset.cacheVariables.CMAKE_PREFIX_PATH
+                    if (Test-Path $PresetQt) { $QtDir = $PresetQt }
+                }
+            } catch {}
+        }
+        if (-not $QtDir) {
+            $QtCandidates = Get-ChildItem -Path "C:\Qt" -Filter "6.*" -Directory -ErrorAction SilentlyContinue | Sort-Object Name -Descending
+            foreach ($Candidate in $QtCandidates) {
+                $MsvcPath = Join-Path $Candidate.FullName "msvc2022_64"
+                if (Test-Path $MsvcPath) { $QtDir = $MsvcPath; break }
+            }
+        }
+    }
+}
+
+# Ensure Qt bin directory is in PATH for all Qt tools (lupdate, lrelease, windeployqt)
+if ($QtDir) {
+    $QtBinDir = Join-Path $QtDir "bin"
+    if (Test-Path $QtBinDir) {
+        if ($env:PATH -notlike "*$QtBinDir*") {
+            $env:PATH = "$QtBinDir;$env:PATH"
         }
     }
 }
@@ -168,7 +208,7 @@ if ($ShouldCompileTranslations -and $QtDir) {
 }
 
 # Exit early if ONLY translation tools were requested
-if (($Lupdate -or $Lrelease) -and -not $Debug -and -not $Release -and -not $Package -and -not $Test -and -not $Clean -and -not $Format) {
+if (($Lupdate -or $Lrelease) -and -not $Debug -and -not $Release -and -not $Package -and -not $Test -and -not $Clean -and -not $Format -and -not $Deploy) {
     $Stopwatch.Stop()
     $ElapsedSec = [math]::Round($Stopwatch.Elapsed.TotalSeconds, 2)
     Write-Success "Translation step completed in $ElapsedSec seconds.`n"
@@ -187,7 +227,6 @@ if ($Format) {
     $FormattedCount = 0
 
     foreach ($File in $Files) {
-        # Compare file hash before and after clang-format execution
         $BeforeHash = (Get-FileHash -Path $File.FullName -Algorithm MD5).Hash
         & $ClangFormat -i $File.FullName
         $AfterHash = (Get-FileHash -Path $File.FullName -Algorithm MD5).Hash
@@ -239,7 +278,7 @@ if ($Static) {
 }
 
 # ─────────────────────────────────────────────────────────────
-# 6. MSVC Toolchain & Preset Setup
+# 6. MSVC Toolchain & Configuration Resolution
 # ─────────────────────────────────────────────────────────────
 if (-not (Get-Command "cl.exe" -ErrorAction SilentlyContinue)) {
     Write-Step "Locating Visual Studio MSVC environment via vswhere..."
@@ -261,6 +300,105 @@ if (-not (Get-Command "cl.exe" -ErrorAction SilentlyContinue)) {
     }
 }
 
+# Determine build / deploy configurations
+$ConfigsToBuild = @()
+if ($Debug) { $ConfigsToBuild += "Debug" }
+if ($Release) { $ConfigsToBuild += "Release" }
+
+# If user specified --deploy without explicit -d or -r:
+# Auto-detect existing shared binary configuration on disk
+if ($Deploy -and ($ConfigsToBuild.Count -eq 0)) {
+    $ExistingDebug = Find-TargetExecutable "Debug"
+    $ExistingRelease = Find-TargetExecutable "Release"
+
+    if ($ExistingDebug -and -not $ExistingRelease) {
+        $ConfigsToBuild = @("Debug")
+        Write-Host "[DEPLOY] Auto-detected existing shared Debug build." -ForegroundColor Gray
+    } elseif ($ExistingRelease -and -not $ExistingDebug) {
+        $ConfigsToBuild = @("Release")
+        Write-Host "[DEPLOY] Auto-detected existing shared Release build." -ForegroundColor Gray
+    } elseif ($ExistingDebug -and $ExistingRelease) {
+        $DebugTime = (Get-Item $ExistingDebug).LastWriteTime
+        $ReleaseTime = (Get-Item $ExistingRelease).LastWriteTime
+        if ($DebugTime -ge $ReleaseTime) {
+            $ConfigsToBuild = @("Debug")
+            Write-Host "[DEPLOY] Both builds exist. Selected newest: Debug ($DebugTime)." -ForegroundColor Gray
+        } else {
+            $ConfigsToBuild = @("Release")
+            Write-Host "[DEPLOY] Both builds exist. Selected newest: Release ($ReleaseTime)." -ForegroundColor Gray
+        }
+    } else {
+        # Default to Debug for shared local development if nothing was built yet
+        $ConfigsToBuild = @("Debug")
+        Write-Host "[DEPLOY] No existing shared build found. Defaulting to Debug." -ForegroundColor Gray
+    }
+} elseif ($ConfigsToBuild.Count -eq 0) {
+    # Default for full standard build without flags is both Debug and Release
+    $ConfigsToBuild = @("Debug", "Release")
+}
+
+# ─────────────────────────────────────────────────────────────
+# 6.1 Standalone Deploy Shortcut (Fast-path if already compiled)
+# ─────────────────────────────────────────────────────────────
+$IsStandaloneDeploy = $Deploy -and -not $Clean -and -not $Test -and -not $Package -and -not $BuildQt
+
+if ($IsStandaloneDeploy) {
+    if ($Static) {
+        Write-Warn "Deploy (windeployqt) is only applicable to shared Qt builds (-Static was specified)."
+        exit 0
+    }
+
+    $AllExist = $true
+    $TargetsToDeploy = @()
+
+    foreach ($Cfg in $ConfigsToBuild) {
+        $FoundExe = Find-TargetExecutable $Cfg
+        if ($FoundExe) {
+            $TargetsToDeploy += @{ Config = $Cfg; Exe = $FoundExe }
+        } else {
+            $AllExist = $false
+        }
+    }
+
+    # If all requested targets exist, deploy immediately without rebuilding!
+    if ($AllExist -and $TargetsToDeploy.Count -gt 0) {
+        Write-Step "Running standalone Qt deployment (windeployqt)..."
+
+        $WinDeployQt = if ($QtDir) { Join-Path $QtDir "bin\windeployqt.exe" } else { $null }
+        if (-not $WinDeployQt -or -not (Test-Path $WinDeployQt)) {
+            if (Get-Command "windeployqt.exe" -ErrorAction SilentlyContinue) {
+                $WinDeployQt = (Get-Command "windeployqt.exe").Source
+            }
+        }
+
+        if (-not $WinDeployQt -or -not (Test-Path $WinDeployQt)) {
+            Write-Err "windeployqt.exe not found! Please specify -QtDir or set QT_DIR."
+            exit 1
+        }
+
+        foreach ($Target in $TargetsToDeploy) {
+            $CfgName = $Target.Config
+            $TargetExe = $Target.Exe
+            $CfgFlag = "--$($CfgName.ToLower())"
+
+            Write-Host "Deploying Qt dependencies for $CfgName to $(Split-Path $TargetExe -Parent)..." -ForegroundColor Cyan
+            & $WinDeployQt $CfgFlag --compiler-runtime $TargetExe
+            if ($LASTEXITCODE -ne 0) {
+                Write-Err "windeployqt failed for $CfgName with exit code $LASTEXITCODE!"
+                exit $LASTEXITCODE
+            }
+            Write-Success "windeployqt completed successfully for $CfgName."
+        }
+
+        $Stopwatch.Stop()
+        $ElapsedSec = [math]::Round($Stopwatch.Elapsed.TotalSeconds, 2)
+        Write-Success "Deployment step completed in $ElapsedSec seconds.`n"
+        exit 0
+    } else {
+        Write-Host "[DEPLOY] Target executable not found. Triggering build before deployment..." -ForegroundColor Gray
+    }
+}
+
 # Default generator to Ninja
 $Gen = "ninja"
 $Type = if ($Static) { "static" } else { "shared" }
@@ -271,14 +409,6 @@ if ($Clean -and (Test-Path $PresetBuildDir)) {
     Write-Step "Cleaning preset build directory: $PresetBuildDir..."
     Remove-Item -Path $PresetBuildDir -Recurse -Force
     Write-Success "Clean completed."
-}
-
-# Build configurations to run
-$ConfigsToBuild = @()
-if ($Debug) { $ConfigsToBuild += "Debug" }
-if ($Release) { $ConfigsToBuild += "Release" }
-if ($ConfigsToBuild.Count -eq 0) {
-    $ConfigsToBuild = @("Debug", "Release")
 }
 
 # ─────────────────────────────────────────────────────────────
@@ -314,25 +444,29 @@ foreach ($Config in $ConfigsToBuild) {
 
     # Run windeployqt for shared builds
     if ($Deploy -and -not $Static) {
-        Write-Step "Deploying Qt libraries with windeployqt..."
+        Write-Step "Deploying Qt libraries with windeployqt ($Config)..."
         
-        $TargetExe = $null
-        $CandidateBinDirs = @(
-            (Join-Path $BuildRoot "bin\$Config"),
-            (Join-Path $PresetBuildDir "bin\$Config"),
-            (Join-Path $PresetBuildDir "bin"),
-            (Join-Path $BuildRoot "bin")
-        )
-        foreach ($Candidate in $CandidateBinDirs) {
-            $TestExe = Join-Path $Candidate $AppName
-            if (Test-Path $TestExe) { $TargetExe = $TestExe; break }
+        $TargetExe = Find-TargetExecutable $Config
+
+        $WinDeployQt = if ($QtDir) { Join-Path $QtDir "bin\windeployqt.exe" } else { $null }
+        if (-not $WinDeployQt -or -not (Test-Path $WinDeployQt)) {
+            if (Get-Command "windeployqt.exe" -ErrorAction SilentlyContinue) {
+                $WinDeployQt = (Get-Command "windeployqt.exe").Source
+            }
         }
 
-        if ($TargetExe) {
-            & "$QtDir\bin\windeployqt.exe" "--$Config" --compiler-runtime $TargetExe
-            Write-Success "windeployqt completed."
+        if ($TargetExe -and $WinDeployQt -and (Test-Path $WinDeployQt)) {
+            $CfgFlag = "--$($Config.ToLower())"
+            & $WinDeployQt $CfgFlag --compiler-runtime $TargetExe
+            if ($LASTEXITCODE -ne 0) {
+                Write-Err "windeployqt failed for $Config with exit code $LASTEXITCODE!"
+                exit $LASTEXITCODE
+            }
+            Write-Success "windeployqt completed successfully for $Config."
+        } elseif (-not $WinDeployQt -or -not (Test-Path $WinDeployQt)) {
+            Write-Err "windeployqt.exe not found! Please check QT_DIR."
         } else {
-            Write-Warn "Executable $AppName not found for windeployqt execution."
+            Write-Warn "Executable $AppName not found for windeployqt execution ($Config)."
         }
     }
 
@@ -342,41 +476,19 @@ foreach ($Config in $ConfigsToBuild) {
     if ($Package) {
         Write-Step "Packaging Release artifacts for $Config..."
 
-        # Priority search order for configuration binary
-        $CandidateBinDirs = @(
-            (Join-Path $BuildRoot "bin\$Config"),
-            (Join-Path $PresetBuildDir "bin\$Config"),
-            (Join-Path $PresetBuildDir "bin"),
-            (Join-Path $BuildRoot "bin"),
-            $PresetBuildDir
-        )
-
-        $BinDir = $null
-        $AppExe = $null
-
-        foreach ($Candidate in $CandidateBinDirs) {
-            $TestExe = Join-Path $Candidate $AppName
-            if (Test-Path $TestExe) {
-                $BinDir = $Candidate
-                $AppExe = $TestExe
-                break
-            }
-        }
+        $AppExe = Find-TargetExecutable $Config
 
         if (-not $AppExe) {
-            Write-Err "Executable '$AppName' not found for configuration '$Config'! Searched locations:"
-            foreach ($Candidate in $CandidateBinDirs) {
-                Write-Host "  - $(Join-Path $Candidate $AppName)" -ForegroundColor Gray
-            }
+            Write-Err "Executable '$AppName' not found for configuration '$Config'!"
             exit 1
         }
 
+        $BinDir = Split-Path $AppExe -Parent
         Write-Host "Found target executable ($Config) at: $AppExe" -ForegroundColor Gray
 
         $ArtifactsDir = Join-Path $BuildRoot "artifacts"
         if (-not (Test-Path $ArtifactsDir)) { New-Item -ItemType Directory -Path $ArtifactsDir -Force | Out-Null }
 
-        # Robust Version Extraction directly from MAJOR.MINOR.PATCH in VersionInfo.h
         $AppVersion = "0.0.1"
         if (Test-Path $VersionHeader) {
             $HeaderContent = Get-Content $VersionHeader -Raw
@@ -390,30 +502,33 @@ foreach ($Config in $ConfigsToBuild) {
         if ($Config -ne "Release") { $ArchiveBaseName += "-$Config" }
         $ZipPath = Join-Path $ArtifactsDir "$ArchiveBaseName.zip"
 
-        # Create a clean temporary staging directory for ZIP archiving
         $StagingDir = Join-Path $ArtifactsDir "staging_$ArchiveBaseName"
         if (Test-Path $StagingDir) { Remove-Item -Path $StagingDir -Recurse -Force }
         New-Item -ItemType Directory -Path $StagingDir -Force | Out-Null
 
-        # Selective Copying: Only copy ModeFlow.exe and required DLLs (no logs/temp files)
         Copy-Item -Path $AppExe -Destination $StagingDir -Force
 
-        # For SHARED (non-static) builds, copy DLLs and run windeployqt on staging folder
         if (-not $Static) {
             Get-ChildItem -Path $BinDir -Filter "*.dll" | Copy-Item -Destination $StagingDir -Force
 
-            $WinDeployQt = Join-Path $QtDir "bin\windeployqt.exe"
-            if (Test-Path $WinDeployQt) {
+            $WinDeployQt = if ($QtDir) { Join-Path $QtDir "bin\windeployqt.exe" } else { $null }
+            if (-not $WinDeployQt -or -not (Test-Path $WinDeployQt)) {
+                if (Get-Command "windeployqt.exe" -ErrorAction SilentlyContinue) {
+                    $WinDeployQt = (Get-Command "windeployqt.exe").Source
+                }
+            }
+
+            if ($WinDeployQt -and (Test-Path $WinDeployQt)) {
                 Write-Host "Running windeployqt on staging folder for portable shared package..." -ForegroundColor Gray
                 $StagingExe = Join-Path $StagingDir $AppName
-                & $WinDeployQt "--$Config" --compiler-runtime $StagingExe
+                $CfgFlag = "--$($Config.ToLower())"
+                & $WinDeployQt $CfgFlag --compiler-runtime $StagingExe
                 Write-Success "Qt dependencies deployed to staging directory."
             } else {
-                Write-Warn "windeployqt.exe not found at $WinDeployQt, skipping Qt DLL deployment."
+                Write-Warn "windeployqt.exe not found, skipping Qt DLL deployment."
             }
         }
 
-        # Selective Copying: Root documentation files into staging
         $LicenseSrc = Get-ChildItem -Path $RootDir -Filter "LICENSE*" | Select-Object -First 1
         if ($LicenseSrc) { Copy-Item -Path $LicenseSrc.FullName -Destination (Join-Path $StagingDir "LICENSE.txt") -Force }
 
@@ -423,20 +538,16 @@ foreach ($Config in $ConfigsToBuild) {
         $NoticesSrc = Join-Path $RootDir "THIRD_PARTY_NOTICES.md"
         if (Test-Path $NoticesSrc) { Copy-Item -Path $NoticesSrc -Destination (Join-Path $StagingDir "THIRD_PARTY_NOTICES.txt") -Force }
 
-        # Compress staging folder into distribution ZIP archive
         if (Test-Path $ZipPath) { Remove-Item -Path $ZipPath -Force }
         Write-Host "Compressing distribution archive: $ZipPath" -ForegroundColor Gray
         Compress-Archive -Path "$StagingDir\*" -DestinationPath $ZipPath -Force
 
-        # Clean up staging directory after archiving
         Remove-Item -Path $StagingDir -Recurse -Force
 
-        # Generate SHA-256 Checksum using fail-safe function
         $Hash = Get-Sha256Checksum $ZipPath
         $ShaFile = "$ZipPath.sha256"
         Set-Content -Path $ShaFile -Value "$Hash *$ArchiveBaseName.zip" -NoNewline
 
-        # Generate metadata/update.json without BOM
         if (-not (Test-Path $MetadataDir)) { New-Item -ItemType Directory -Path $MetadataDir -Force | Out-Null }
         $ChangelogFile = Join-Path $MetadataDir "changelog.md"
         $RawChangelog = if (Test-Path $ChangelogFile) { Get-Content $ChangelogFile -Raw } else { "Release v$AppVersion" }
