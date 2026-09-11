@@ -30,7 +30,7 @@
 #endif
 
 #ifndef UPDATE_URL
-#define UPDATE_URL "https://raw.githubusercontent.com/goloveshko/ModeFlow/main/metadata/update.json"
+#define UPDATE_URL "https://api.github.com/repos/goloveshko/ModeFlow/releases/latest"
 #endif
 
 #ifdef __cplusplus

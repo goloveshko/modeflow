@@ -15,6 +15,16 @@ namespace ModeFlow::Services {
 
 using namespace Qt::StringLiterals;
 
+namespace {
+QString sanitizeVersion(QString version) {
+    version = version.trimmed();
+    if (version.startsWith(u'v', Qt::CaseInsensitive)) {
+        version.remove(0, 1);
+    }
+    return version;
+}
+} // namespace
+
 UpdateService::UpdateService(Core::ConfigManager* configManager, QObject* parent)
     : QObject(parent), m_configManager(configManager) {
     m_network.setTransferTimeout(15000);
@@ -30,8 +40,9 @@ UpdateService::UpdateService(Core::ConfigManager* configManager, QObject* parent
 UpdateService::~UpdateService() = default;
 
 void UpdateService::checkForUpdates(bool force) {
-    if (m_checkInProgress)
+    if (m_checkInProgress) {
         return;
+    }
 
     m_isManualCheck = force;
 
@@ -50,14 +61,16 @@ void UpdateService::checkForUpdates(bool force) {
     const QUrl manifestUrl = QUrl::fromUserInput(Info::UpdateManifestUrl);
     QNetworkRequest request(manifestUrl);
     request.setRawHeader("User-Agent", APP_INTERNAL_NAME " UpdateChecker");
+    request.setRawHeader("Accept", "application/vnd.github+json");
 
     QNetworkReply* reply = m_network.get(request);
     connect(reply, &QNetworkReply::finished, this, [this, reply]() { onCheckReply(reply); });
 }
 
 void UpdateService::onCheckReply(QNetworkReply* reply) {
-    if (!reply)
+    if (!reply) {
         return;
+    }
 
     disconnect(reply, &QNetworkReply::finished, this, nullptr);
 
@@ -80,12 +93,13 @@ void UpdateService::onCheckReply(QNetworkReply* reply) {
     }
 
     const QJsonObject manifest = doc.object();
-    const QString latestVersion = manifest[u"version"_s].toString();
-    const QString changelog = manifest[u"changelog"_s].toString();
-    const QUrl downloadUrl(manifest[u"url"_s].toString());
+
+    const QString latestVersion = sanitizeVersion(manifest[u"tag_name"_s].toString());
+    const QUrl downloadUrl(manifest[u"html_url"_s].toString());
+    const QString changelog = manifest[u"body"_s].toString();
 
     if (latestVersion.isEmpty() || downloadUrl.isEmpty()) {
-        qCWarning(lcService) << "Update manifest is missing required fields";
+        qCWarning(lcService) << "Update manifest is missing required fields (tag_name/version or html_url/url)";
         emit checkFailed(tr("Invalid update manifest"));
         return;
     }
@@ -118,16 +132,8 @@ void UpdateService::onCheckReply(QNetworkReply* reply) {
 }
 
 bool UpdateService::isNewerVersion(const QString& remote, const QString& local) const {
-    auto sanitize = [](QString s) {
-        s = s.trimmed();
-        if (s.startsWith(u'v') || s.startsWith(u'V')) {
-            s.remove(0, 1);
-        }
-        return s;
-    };
-
-    const auto remoteVer = QVersionNumber::fromString(sanitize(remote));
-    const auto localVer = QVersionNumber::fromString(sanitize(local));
+    const auto remoteVer = QVersionNumber::fromString(sanitizeVersion(remote));
+    const auto localVer = QVersionNumber::fromString(sanitizeVersion(local));
 
     return remoteVer > localVer;
 }
@@ -162,9 +168,10 @@ void UpdateService::loadCachedUpdate() {
     }
 
     const QJsonObject manifest = doc.object();
-    const QString version = manifest[u"version"_s].toString();
-    const QString url = manifest[u"url"_s].toString();
-    const QString changelog = manifest[u"changelog"_s].toString();
+
+    const QString version = sanitizeVersion(manifest[u"tag_name"_s].toString());
+    const QString url = manifest[u"html_url"_s].toString();
+    const QString changelog = manifest[u"body"_s].toString();
 
     if (!isNewerVersion(version, Info::Version)) {
         clearCache();

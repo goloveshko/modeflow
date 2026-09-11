@@ -19,8 +19,8 @@ include(AppResources)
 
 set(GITHUB_URL "https://github.com/goloveshko/ModeFlow"
     CACHE STRING "The project GitHub repository URL")
-set(UPDATE_URL "https://raw.githubusercontent.com/goloveshko/ModeFlow/main/metadata/update.json"
-    CACHE STRING "The dynamic URL for auto-update manifest checks")
+set(UPDATE_URL "https://api.github.com/repos/goloveshko/ModeFlow/releases/latest"
+    CACHE STRING "The dynamic URL for auto-update checks via GitHub API")
 set(LICENSE_URL "https://github.com/goloveshko/ModeFlow/blob/main/LICENSE"
     CACHE STRING "The project license URL")
 

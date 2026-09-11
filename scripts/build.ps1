@@ -60,10 +60,18 @@ $Stopwatch = [System.Diagnostics.Stopwatch]::StartNew()
 # ─────────────────────────────────────────────────────────────
 # Helper Functions
 # ─────────────────────────────────────────────────────────────
-function Write-Step([string]$Message) { Write-Host "`n[STEP] $Message" -ForegroundColor Cyan }
-function Write-Success([string]$Message) { Write-Host "[SUCCESS] $Message" -ForegroundColor Green }
-function Write-Warn([string]$Message) { Write-Host "[WARN] $Message" -ForegroundColor Yellow }
-function Write-Err([string]$Message) { Write-Host "[ERROR] $Message" -ForegroundColor Red }
+function Write-Step([string]$Message) {
+    Write-Host "`n[STEP] $Message" -ForegroundColor Cyan
+}
+function Write-Success([string]$Message) {
+    Write-Host "[SUCCESS] $Message" -ForegroundColor Green
+}
+function Write-Warn([string]$Message) {
+    Write-Host "[WARN] $Message" -ForegroundColor Yellow
+}
+function Write-Err([string]$Message) {
+    Write-Host "[ERROR] $Message" -ForegroundColor Red
+}
 
 # Fail-safe SHA-256 Checksum Calculator
 function Get-Sha256Checksum([string]$FilePath) {
@@ -96,10 +104,15 @@ if (Test-Path $EnvPs1) {
 }
 
 # Production Defaults (if not set in environment)
-if (-not $env:GITHUB_URL) { $env:GITHUB_URL = "https://github.com/goloveshko/ModeFlow" }
-if (-not $env:UPDATE_URL) { $env:UPDATE_URL = "https://raw.githubusercontent.com/goloveshko/ModeFlow/main/metadata/update.json" }
-if (-not $env:LICENSE_URL) { $env:LICENSE_URL = "https://github.com/goloveshko/ModeFlow/blob/main/LICENSE" }
-if (-not $env:GIT_HOST_URL) { $env:GIT_HOST_URL = "https://github.com/goloveshko/ModeFlow" }
+if (-not $env:GITHUB_URL) {
+    $env:GITHUB_URL = "https://github.com/goloveshko/ModeFlow"
+}
+if (-not $env:UPDATE_URL) {
+    $env:UPDATE_URL = "https://api.github.com/repos/goloveshko/ModeFlow/releases/latest"
+}
+if (-not $env:LICENSE_URL) {
+    $env:LICENSE_URL = "https://github.com/goloveshko/ModeFlow/blob/main/LICENSE"
+}
 
 # Application & Folder Names
 $AppNameBase = "ModeFlow"
@@ -132,7 +145,11 @@ function Get-BinaryQtLinkType([string]$FilePath) {
     }
 
     # 1. Prefer dumpbin.exe if available in PATH
-    $DumpBin = if (Get-Command "dumpbin.exe" -ErrorAction SilentlyContinue) { "dumpbin.exe" } else { $null }
+    $DumpBin = if (Get-Command "dumpbin.exe" -ErrorAction SilentlyContinue) {
+        "dumpbin.exe"
+    } else {
+        $null
+    }
     if ($DumpBin) {
         $Deps = & $DumpBin /dependents $FilePath 2>$null
         if ($Deps -match "Qt6Cored\.dll") {
@@ -158,7 +175,11 @@ function Get-BinaryQtLinkType([string]$FilePath) {
             if ($Chunk -match "Qt6Core\.dll") {
                 return "SharedRelease"
             }
-            $Overlap = if ($Chunk.Length -gt 32) { $Chunk.Substring($Chunk.Length - 32) } else { $Chunk }
+            $Overlap = if ($Chunk.Length -gt 32) {
+                $Chunk.Substring($Chunk.Length - 32)
+            } else {
+                $Chunk
+            }
         }
         return "Static"
     } finally {
@@ -197,7 +218,8 @@ if (-not $QtDir) {
                         $QtDir = $PresetQt
                     }
                 }
-            } catch { }
+            } catch {
+            }
         }
         if (-not $QtDir) {
             $QtCandidates = Get-ChildItem -Path "C:\Qt" -Filter "6.*" -Directory -ErrorAction SilentlyContinue | Sort-Object Name -Descending
@@ -296,7 +318,11 @@ if ($Format) {
 # ─────────────────────────────────────────────────────────────
 if ($Static) {
     Write-Step "Checking vcpkg static toolchain..."
-    $VcpkgExe = if ($env:VCPKG_EXE) { $env:VCPKG_EXE } else { Join-Path $RootDir "vcpkg\vcpkg.exe" }
+    $VcpkgExe = if ($env:VCPKG_EXE) {
+        $env:VCPKG_EXE
+    } else {
+        Join-Path $RootDir "vcpkg\vcpkg.exe"
+    }
 
     if (-not (Test-Path $VcpkgExe)) {
         if (Get-Command "vcpkg.exe" -ErrorAction SilentlyContinue) {
@@ -347,14 +373,22 @@ if (-not (Get-Command "cl.exe" -ErrorAction SilentlyContinue)) {
 
 # Preset variables
 $Gen = "ninja"
-$Type = if ($Static) { "static" } else { "shared" }
+$Type = if ($Static) {
+    "static"
+} else {
+    "shared"
+}
 $PresetName = "$Gen-$Type"
 $PresetBuildDir = Join-Path $BuildRoot $PresetName
 
 # Determine build / deploy configurations
 $ConfigsToBuild = @()
-if ($Debug) { $ConfigsToBuild += "Debug" }
-if ($Release) { $ConfigsToBuild += "Release" }
+if ($Debug) {
+    $ConfigsToBuild += "Debug"
+}
+if ($Release) {
+    $ConfigsToBuild += "Release"
+}
 
 # If user specified --deploy without explicit -d or -r:
 # Smart auto-detection between Shared vs Static builds
@@ -362,8 +396,16 @@ if ($Deploy -and ($ConfigsToBuild.Count -eq 0)) {
     $ExistingDebug = Find-TargetExecutable "Debug"
     $ExistingRelease = Find-TargetExecutable "Release"
 
-    $DebugType = if ($ExistingDebug) { Get-BinaryQtLinkType $ExistingDebug } else { "NotFound" }
-    $ReleaseType = if ($ExistingRelease) { Get-BinaryQtLinkType $ExistingRelease } else { "NotFound" }
+    $DebugType = if ($ExistingDebug) {
+        Get-BinaryQtLinkType $ExistingDebug
+    } else {
+        "NotFound"
+    }
+    $ReleaseType = if ($ExistingRelease) {
+        Get-BinaryQtLinkType $ExistingRelease
+    } else {
+        "NotFound"
+    }
 
     $DebugIsShared = ($DebugType -like "Shared*")
     $ReleaseIsShared = ($ReleaseType -like "Shared*")
@@ -425,7 +467,11 @@ if ($IsStandaloneDeploy) {
     if ($AllExist -and $TargetsToDeploy.Count -gt 0) {
         Write-Step "Running standalone Qt deployment (windeployqt)..."
 
-        $WinDeployQt = if ($QtDir) { Join-Path $QtDir "bin\windeployqt.exe" } else { $null }
+        $WinDeployQt = if ($QtDir) {
+            Join-Path $QtDir "bin\windeployqt.exe"
+        } else {
+            $null
+        }
         if (-not $WinDeployQt -or -not (Test-Path $WinDeployQt)) {
             if (Get-Command "windeployqt.exe" -ErrorAction SilentlyContinue) {
                 $WinDeployQt = (Get-Command "windeployqt.exe").Source
@@ -517,14 +563,22 @@ foreach ($Config in $ConfigsToBuild) {
         Write-Step "Deploying Qt libraries with windeployqt ($Config)..."
 
         $TargetExe = Find-TargetExecutable $Config
-        $LinkType = if ($TargetExe) { Get-BinaryQtLinkType $TargetExe } else { "NotFound" }
+        $LinkType = if ($TargetExe) {
+            Get-BinaryQtLinkType $TargetExe
+        } else {
+            "NotFound"
+        }
 
         if ($LinkType -eq "Static") {
             Write-Warn "'$TargetExe' is a static build. Skipping windeployqt."
             continue
         }
 
-        $WinDeployQt = if ($QtDir) { Join-Path $QtDir "bin\windeployqt.exe" } else { $null }
+        $WinDeployQt = if ($QtDir) {
+            Join-Path $QtDir "bin\windeployqt.exe"
+        } else {
+            $null
+        }
         if (-not $WinDeployQt -or -not (Test-Path $WinDeployQt)) {
             if (Get-Command "windeployqt.exe" -ErrorAction SilentlyContinue) {
                 $WinDeployQt = (Get-Command "windeployqt.exe").Source
@@ -570,9 +624,21 @@ foreach ($Config in $ConfigsToBuild) {
         $AppVersion = "0.0.1"
         if (Test-Path $VersionHeader) {
             $HeaderContent = Get-Content $VersionHeader -Raw
-            $maj = if ($HeaderContent -match '#define\s+APP_VERSION_MAJOR\s+(\d+)') { $Matches[1] } else { "0" }
-            $min = if ($HeaderContent -match '#define\s+APP_VERSION_MINOR\s+(\d+)') { $Matches[1] } else { "0" }
-            $pat = if ($HeaderContent -match '#define\s+APP_VERSION_PATCH\s+(\d+)') { $Matches[1] } else { "1" }
+            $maj = if ($HeaderContent -match '#define\s+APP_VERSION_MAJOR\s+(\d+)') {
+                $Matches[1]
+            } else {
+                "0"
+            }
+            $min = if ($HeaderContent -match '#define\s+APP_VERSION_MINOR\s+(\d+)') {
+                $Matches[1]
+            } else {
+                "0"
+            }
+            $pat = if ($HeaderContent -match '#define\s+APP_VERSION_PATCH\s+(\d+)') {
+                $Matches[1]
+            } else {
+                "1"
+            }
             $AppVersion = "$maj.$min.$pat"
         }
 
@@ -593,7 +659,11 @@ foreach ($Config in $ConfigsToBuild) {
         if (-not $Static) {
             Get-ChildItem -Path $BinDir -Filter "*.dll" | Copy-Item -Destination $StagingDir -Force
 
-            $WinDeployQt = if ($QtDir) { Join-Path $QtDir "bin\windeployqt.exe" } else { $null }
+            $WinDeployQt = if ($QtDir) {
+                Join-Path $QtDir "bin\windeployqt.exe"
+            } else {
+                $null
+            }
             if (-not $WinDeployQt -or -not (Test-Path $WinDeployQt)) {
                 if (Get-Command "windeployqt.exe" -ErrorAction SilentlyContinue) {
                     $WinDeployQt = (Get-Command "windeployqt.exe").Source
@@ -641,27 +711,20 @@ foreach ($Config in $ConfigsToBuild) {
         if (-not (Test-Path $MetadataDir)) {
             New-Item -ItemType Directory -Path $MetadataDir -Force | Out-Null
         }
+
+        # Generate pre-rendered release notes for GitHub Publication from changelog.md
         $ChangelogFile = Join-Path $MetadataDir "changelog.md"
-        $RawChangelog = if (Test-Path $ChangelogFile) {
-            Get-Content $ChangelogFile -Raw
-        } else {
-            "Release v$AppVersion"
+        if (Test-Path $ChangelogFile) {
+            $RawChangelog = Get-Content $ChangelogFile -Raw
+            $RenderedChangelog = $RawChangelog.Replace('{VERSION}', $AppVersion)
+            $ReleaseNotesDst = Join-Path $ArtifactsDir "release_notes.md"
+            $Utf8NoBom = [System.Text.UTF8Encoding]::new($false)
+            [System.IO.File]::WriteAllText($ReleaseNotesDst, $RenderedChangelog, $Utf8NoBom)
+            Write-Success "Release Notes: $ReleaseNotesDst"
         }
-        $Changelog = $RawChangelog.Replace('{VERSION}', $AppVersion)
-
-        $ManifestObj = [ordered]@{
-            version   = $AppVersion
-            url       = "$($env:GIT_HOST_URL)/releases/tag/v$AppVersion"
-            changelog = $Changelog
-        }
-
-        $JsonString = ConvertTo-Json $ManifestObj -Depth 5
-        $Utf8NoBom = [System.Text.UTF8Encoding]::new($false)
-        [System.IO.File]::WriteAllText((Join-Path $MetadataDir "update.json"), $JsonString, $Utf8NoBom)
 
         Write-Success "ZIP Package: $ZipPath"
         Write-Success "SHA-256 Checksum: $ShaFile"
-        Write-Success "Update Manifest (No BOM): $MetadataDir\update.json"
     }
 }
 
