@@ -26,7 +26,7 @@
 #endif
 
 #ifndef LICENSE_URL
-#define LICENSE_URL "https://github.com/goloveshko/ModeFlow/blob/main/LICENSE"
+#define LICENSE_URL GITHUB_URL "/blob/main/LICENSE"
 #endif
 
 #ifndef UPDATE_URL

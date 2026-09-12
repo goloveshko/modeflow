@@ -10,7 +10,6 @@
 # $env:VCPKG_EXE = "C:\dev\vcpkg\vcpkg.exe"
 
 # --- Local Forgejo / Test Server Overrides ---
-# $env:GITHUB_URL = "http://localhost:3000/{owner}"
-# $env:UPDATE_URL = "http://localhost:3000/{owner}/{repo}/raw/branch/main/metadata/update.json"
+# $env:GITHUB_URL = "http://localhost:3000/{owner}/{repo}"
+# $env:UPDATE_URL = "http://localhost:3000/api/v1/repos/{owner}/{repo}/raw/branch/releases/latest"
 # $env:LICENSE_URL = "http://localhost:3000/{owner}/{repo}/src/branch/main/LICENSE"
-# $env:GIT_HOST_URL = "http://localhost:3000/{owner}/{repo}"

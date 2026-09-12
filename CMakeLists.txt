@@ -19,10 +19,10 @@ include(AppResources)
 
 set(GITHUB_URL "https://github.com/goloveshko/ModeFlow"
     CACHE STRING "The project GitHub repository URL")
+set(LICENSE_URL "${GITHUB_URL}/blob/main/LICENSE"
+    CACHE STRING "The project license URL")
 set(UPDATE_URL "https://api.github.com/repos/goloveshko/ModeFlow/releases/latest"
     CACHE STRING "The dynamic URL for auto-update checks via GitHub API")
-set(LICENSE_URL "https://github.com/goloveshko/ModeFlow/blob/main/LICENSE"
-    CACHE STRING "The project license URL")
 
 # vcpkg static Qt packages may omit qtpaths, which triggers a noisy deployment
 # warning during find_package(Qt6 ...) even though the build still works.
