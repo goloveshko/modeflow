@@ -62,7 +62,7 @@ void AboutDialog::showEvent(QShowEvent* event) {
 
 void AboutDialog::updateNewVersionButton() {
     if (m_updateAvailable) {
-        ui->btnNewVersion->setText(tr("New version available: v%1").arg(m_latestVersion));
+        ui->btnNewVersion->setText(tr("New version available: %1").arg(m_latestVersion));
         ui->btnNewVersion->setVisible(true);
     } else {
         ui->btnNewVersion->setVisible(false);

@@ -342,8 +342,8 @@
         <translation>Версия %1</translation>
     </message>
     <message>
-        <source>New version available: v%1</source>
-        <translation>Доступна новая версия: v%1</translation>
+        <source>New version available: %1</source>
+        <translation>Доступна новая версия: %1</translation>
     </message>
 </context>
 <context>
@@ -711,12 +711,12 @@
 <context>
     <name>ModeFlow::Gui::UpdateDialog</name>
     <message>
-        <source>Installed: v%1</source>
-        <translation>Установлена: v%1</translation>
+        <source>Installed: %1</source>
+        <translation>Установлена: %1</translation>
     </message>
     <message>
-        <source>Latest: v%1</source>
-        <translation>Доступна: v%1</translation>
+        <source>Latest: %1</source>
+        <translation>Доступна: %1</translation>
     </message>
     <message>
         <source>No changelog available.</source>

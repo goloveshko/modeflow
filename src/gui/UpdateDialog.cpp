@@ -13,8 +13,8 @@ UpdateDialog::UpdateDialog(Core::IStyleManager* sm, const QString& currentVersio
     : BaseDialog(sm, parent), ui(std::make_unique<Ui::UpdateDialog>()) {
     ui->setupUi(this);
 
-    ui->labelCurrentVersion->setText(tr("Installed: v%1").arg(currentVersion));
-    ui->labelNewVersion->setText(tr("Latest: v%1").arg(latestVersion));
+    ui->labelCurrentVersion->setText(tr("Installed: %1").arg(currentVersion));
+    ui->labelNewVersion->setText(tr("Latest: %1").arg(latestVersion));
 
     if (!changelog.isEmpty()) {
         ui->changelogBrowser->setMarkdown(changelog);
