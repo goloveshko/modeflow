@@ -195,6 +195,9 @@ void MainWindow::addClicked() {
     if (row != -1)
         saveCurrentToModel(row);
 
+    if (m_autosaveTimer)
+        m_autosaveTimer->stop();
+
     m_workspaceManager->createDefaultProfile();
 
     int lastRow = m_workspaceManager->model()->rowCount() - 1;
@@ -215,6 +218,9 @@ void MainWindow::deleteClicked() {
     if (!m_dialogManager->confirmAction(
             this, tr("Delete"), tr("Delete configuration '%1'?").arg(m_workspaceManager->configs()[rowToDelete].name)))
         return;
+
+    if (m_autosaveTimer)
+        m_autosaveTimer->stop();
 
     m_isUpdating = true;
     ui->configList->setCurrentIndex(QModelIndex());
@@ -242,7 +248,8 @@ void MainWindow::on_selectionChanged(const QModelIndex& current, const QModelInd
         // If no edits were made, we avoid redundant disk I/O and heavy hotkey re-registrations!
         if (m_autosaveTimer && m_autosaveTimer->isActive()) {
             m_autosaveTimer->stop();
-            autosaveCurrentProfile();
+            saveCurrentToModel(previous.row());
+            persistProfiles();
         }
     }
 
@@ -510,6 +517,9 @@ void MainWindow::deleteProfileByRow(int row) {
     if (!m_dialogManager->confirmAction(this, tr("Delete"),
                                         tr("Delete configuration '%1'?").arg(m_workspaceManager->configs()[row].name)))
         return;
+
+    if (m_autosaveTimer)
+        m_autosaveTimer->stop();
 
     m_isUpdating = true;
     ui->configList->setCurrentIndex(QModelIndex());
