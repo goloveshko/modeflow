@@ -22,7 +22,6 @@ class MainWindow;
 }
 
 namespace ModeFlow::Gui {
-class SettingsDialog;
 class ProfileIconMenu;
 class ProfileTransfer;
 class ProfileEditor;
@@ -32,7 +31,7 @@ class MainWindow : public BaseDialog {
 public:
     MainWindow(Core::IWorkspaceManager* workspaceManager, Core::ISettingsManager* settingsManager,
                Core::IStyleManager* sm, Core::IDialogManager* dialogManager, QWidget* parent = nullptr);
-    ~MainWindow();
+    ~MainWindow() override;
 
     void raiseWindow();
 
@@ -55,8 +54,7 @@ protected:
 
 private slots:
     void addClicked();
-    void on_selectionChanged(const QModelIndex& current, const QModelIndex& previous);
-    void on_btnCapture_clicked();
+    void onSelectionChanged(const QModelIndex& current, const QModelIndex& previous);
 
     void validateSpecificHotkey();
 

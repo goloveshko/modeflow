@@ -123,7 +123,7 @@ void MainWindow::initMoreMenu() {
 
 void MainWindow::setupConnections() {
     connect(ui->configList->selectionModel(), &QItemSelectionModel::currentRowChanged, this,
-            &MainWindow::on_selectionChanged);
+            &MainWindow::onSelectionChanged);
 
     connect(ui->configList, &ProfileListView::createRequested, this, &MainWindow::addClicked);
     connect(ui->configList, &ProfileListView::deleteRequested, this, &MainWindow::deleteProfileByRow);
@@ -209,43 +209,14 @@ void MainWindow::addClicked() {
 }
 
 void MainWindow::deleteClicked() {
-    QModelIndex index = currentIndex();
-    if (!index.isValid())
-        return;
-
-    int rowToDelete = index.row();
-
-    if (!m_dialogManager->confirmAction(
-            this, tr("Delete"), tr("Delete configuration '%1'?").arg(m_workspaceManager->configs()[rowToDelete].name)))
-        return;
-
-    if (m_autosaveTimer)
-        m_autosaveTimer->stop();
-
-    m_isUpdating = true;
-    ui->configList->setCurrentIndex(QModelIndex());
-    m_isUpdating = false;
-
-    m_workspaceManager->removeConfig(rowToDelete);
-    persistProfiles();
-
-    int rowCount = m_workspaceManager->model()->rowCount();
-    if (rowCount > 0) {
-        setCurrentRowSilently(std::clamp(rowToDelete, 0, rowCount - 1));
-    } else {
-        setCurrentRowSilently(-1);
-        updateUI();
-    }
+    deleteProfileByRow(currentRow());
 }
 
-void MainWindow::on_selectionChanged(const QModelIndex& current, const QModelIndex& previous) {
+void MainWindow::onSelectionChanged(const QModelIndex& current, const QModelIndex& previous) {
     if (m_isUpdating)
         return;
 
     if (previous.isValid()) {
-        // High-end UX optimization: If we have pending unsaved edits (autosave timer is active),
-        // stop the timer and force write the edits now before switching rows.
-        // If no edits were made, we avoid redundant disk I/O and heavy hotkey re-registrations!
         if (m_autosaveTimer && m_autosaveTimer->isActive()) {
             m_autosaveTimer->stop();
             saveCurrentToModel(previous.row());
@@ -259,10 +230,6 @@ void MainWindow::on_selectionChanged(const QModelIndex& current, const QModelInd
     } else {
         ui->settingsLayout->setEnabled(false);
     }
-}
-
-void MainWindow::on_btnCapture_clicked() {
-    captureCurrentSettings();
 }
 
 void MainWindow::saveCurrentToModel(int row) {
@@ -570,21 +537,23 @@ void MainWindow::restoreWindowGeometry() {
     const QPoint savedPos = m_settingsManager->mainWindowPos();
     const QSize savedSize = m_settingsManager->mainWindowSize();
 
+    constexpr int DefaultWidth = 650;
+    constexpr int DefaultHeight = 550;
+
     auto centerOnPrimary = [this]() {
         if (auto* primary = QGuiApplication::primaryScreen()) {
             const QRect screenGeom = primary->geometry();
-            const int x = screenGeom.left() + (screenGeom.width() - 600) / 2;
-            const int y = screenGeom.top() + (screenGeom.height() - 450) / 2;
+            const int x = screenGeom.left() + (screenGeom.width() - DefaultWidth) / 2;
+            const int y = screenGeom.top() + (screenGeom.height() - DefaultHeight) / 2;
             move(x, y);
-            resize(600, 450);
+            resize(DefaultWidth, DefaultHeight);
         } else {
-            resize(600, 450);
+            resize(DefaultWidth, DefaultHeight);
         }
     };
 
-    if (!savedPos.isNull() && savedSize.isValid()) {
-        // Multi-monitor safety check: verify if the saved position lies within any active monitor bounds.
-        // This prevents the window from being rendered off-screen if a monitor was disconnected.
+    if (!savedPos.isNull() && savedSize.isValid() && savedSize.width() >= DefaultWidth &&
+        savedSize.height() >= DefaultHeight) {
         bool posIsVisibleOnAnyMonitor = false;
         for (auto* screen : QGuiApplication::screens()) {
             if (screen->geometry().contains(savedPos)) {
@@ -597,10 +566,10 @@ void MainWindow::restoreWindowGeometry() {
             move(savedPos);
             resize(savedSize);
         } else {
-            centerOnPrimary(); // Fallback if old monitor is missing
+            centerOnPrimary();
         }
     } else {
-        centerOnPrimary(); // Default size for first launch
+        centerOnPrimary();
     }
 }
 
