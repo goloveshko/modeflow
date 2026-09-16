@@ -62,6 +62,7 @@ void UpdateService::checkForUpdates(bool force) {
     QNetworkRequest request(manifestUrl);
     request.setRawHeader("User-Agent", APP_INTERNAL_NAME " UpdateChecker");
     request.setRawHeader("Accept", "application/vnd.github+json");
+    request.setAttribute(QNetworkRequest::RedirectPolicyAttribute, QNetworkRequest::NoLessSafeRedirectPolicy);
 
     QNetworkReply* reply = m_network.get(request);
     connect(reply, &QNetworkReply::finished, this, [this, reply]() { onCheckReply(reply); });
