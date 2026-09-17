@@ -124,9 +124,9 @@ Follow these steps to package and publish a new version of ModeFlow.
 ### Step 1: Version Bump
 Update the version numbers in `src/utils/VersionInfo.h` (increment MAJOR for major features, MINOR for pre-releases, and PATCH for bug fixes):
 ```cpp
-#define APP_VERSION_MAJOR 0
-#define APP_VERSION_MINOR 9  // Set to 9 for Release Candidate
-#define APP_VERSION_PATCH 0  // Increment this for bug fixes
+#define APP_VERSION_MAJOR 1
+#define APP_VERSION_MINOR 0
+#define APP_VERSION_PATCH 0
 ```
 
 ### Step 2: Write Release Notes
@@ -144,27 +144,27 @@ Open `metadata/changelog.md` and write your release notes in Markdown under the 
 ```
 
 ### Step 3: Package Release
-Run the build script with the `--package` flag. This will compile the static release binary, compress the artifacts, calculate the SHA-256 hash, and dynamically generate `update.json` inside the metadata folder:
+Run the build script with the `--package` flag. This will compile the static release binary, compress the artifacts, calculate the SHA-256 hash, and dynamically generate `release_notes.md`:
 ```bash
 scripts\build.bat --release --static --ninja --package
 ```
 
 Verify the generated output:
-*   `build\artifacts\ModeFlow-vX.Y.Z-win-x64.zip` — Portable archive.
-*   `build\artifacts\ModeFlow-vX.Y.Z-win-x64.zip.sha256` — Lowercase SHA-256 checksum.
-*   `metadata\update.json` — Automatically populated update manifest (written to metadata directory).
+* `build\artifacts\ModeFlow-vX.Y.Z-win-x64.zip` — Portable archive.
+* `build\artifacts\ModeFlow-vX.Y.Z-win-x64.zip.sha256` — Lowercase SHA-256 checksum.
+* `build\artifacts\release_notes.md` — Pre-rendered Markdown release description.
 
 ### Step 4: Publish Release
 1.  **Commit and Push metadata:**
     ```bash
-    git add metadata/update.json metadata/changelog.md src/utils/VersionInfo.h
+    git add metadata/changelog.md src/utils/VersionInfo.h
     git commit -m "bump: release version X.Y.Z"
     git push github main
     ```
 2.  **Upload Assets to GitHub:**
     *   Create a new release on GitHub matching the tag `vX.Y.Z`.
     *   Check the **"Set as a pre-release"** checkbox.
-    *   Open `build\artifacts\temp_changelog.md` and copy its pre-rendered contents into the release description.
+    *   Open `build\artifacts\release_notes.md` and copy its pre-rendered contents into the release description.
     *   Drag and drop the generated `.zip` and `.sha256` files from `build\artifacts\` into the assets box.
     *   Click **Publish release**!
 ```

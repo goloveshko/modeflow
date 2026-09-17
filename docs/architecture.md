@@ -83,15 +83,15 @@ To prevent `MainWindow` from becoming a bloated "God Object" managing layouts, d
 
 ```
                   [MainWindow] (View Coordinator)
-                         │
-      ┌──────────────────┼──────────────────┐
-      ▼                  ▼                  ▼
-[ProfileIconMenu] [ProfileDetailsController] [ProfileExchangeController]
-(Icon grid popup)  (Data mapping, capture)   (Import/Export dialogs)
+                             │
+      ┌──────────────────────┼──────────────────────┐
+      ▼                      ▼                      ▼
+[ProfileIconMenu]   [ProfileEditor]         [ProfileTransfer]
+(Icon grid popup)   (Data mapping, capture) (Import/Export dialogs)
 ```
 
-1.  **`ProfileDetailsController` (Presenter):** Encapsulates the entire right-side form. Handles name changes, suggested icon lookups, autostart configurations, and loading/saving profile structures.
-2.  **`ProfileExchangeController` (Presenter):** Isolates all file transactions. Uses custom, styled `QFileDialog` widgets (with native Mica glass backdrops, rounded corners, and disabled size-grip overlaps) to import/export JSON configuration files.
+1.  **`ProfileEditor` (Presenter):** Encapsulates the entire right-side form. Handles name changes, suggested icon lookups, autostart configurations, and loading/saving profile structures.
+2.  **`ProfileTransfer` (Presenter):** Isolates all file transactions. Uses custom, styled `QFileDialog` widgets (with native Mica glass backdrops, rounded corners, and disabled size-grip overlaps) to import/export JSON configuration files.
 3.  **`ProfileIconMenu` (Popup QMenu):** Self-contained, grid-based icon picker. It handles its own layout, selections, and automatically repaints its child button icons when the active theme changes without any assistance from the main window.
 4.  **`LogViewerDialog` (High-Performance Diagnostics):** Upgraded using a native, lazy-loaded `QSyntaxHighlighter` and `QStringView` parsing. It processes megabytes of logs instantly with 0% main-thread HTML freezing.
 5.  **`AppLauncher` (Delayed Abort Protection):** Switched from untrackable `QTimer::singleShot` to managed, cancelable timers. If a user switches profiles before a delayed application launch completes, `terminateProfileProcesses` immediately stops and deletes the active timers, preventing "runaway" process launches.

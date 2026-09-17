@@ -15,7 +15,7 @@ scripts\build.bat --release --static --ninja --package
 Output will be in `build\artifacts\`:
 - `ModeFlow-vX.Y.Z-win-x64.zip`
 - `ModeFlow-vX.Y.Z-win-x64.zip.sha256`
-- `update.json` (located in the repository root)
+- `release_notes.md`
 
 ## Running Tests
 
@@ -43,8 +43,8 @@ src/
     WorkspaceService — Coordinates workspace configuration (display switch -> settle delay -> audio & apps)
   gui/            — Qt dialogs, widgets, and MVC controllers
     MainWindow  — Main window (pure View, decoupled from data mapping and file dialogs)
-    ProfileDetailsController — Presenter managing the right-side profile forms, autocomplete, and hardware capture
-    ProfileExchangeController — Presenter managing non-blocking QFileDialog import/export transactions
+    ProfileEditor — Presenter managing the right-side profile forms, autocomplete, and hardware capture
+    ProfileTransfer — Presenter managing non-blocking QFileDialog import/export transactions
     ProfileIconMenu  — Custom grid-based QMenu widget for selecting profile icons (self-managing theme changes)
     SettingsDialog   — Application settings (DPI-aware, auto-adjusts size to fit Fluent Cards)
     AboutDialog      — Version info and silent update checker (contains centered OK close button)
