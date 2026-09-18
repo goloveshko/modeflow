@@ -24,7 +24,7 @@ public:
 
     bool autostartEnabled() const override;
     QFuture<bool> autostartEnabledAsync() const override;
-    QFuture<bool> requestAutostartToggleAsync(bool enabled, int delay) override;
+    QFuture<bool> requestAutostartToggleAsync(bool enabled, int delay, bool enableLogging = false) override;
     int autostartDelay() const override;
     void setAutostartDelay(int seconds) override;
 

@@ -22,7 +22,7 @@
 - **Portable App**: No installation required. Extract the ZIP and run `ModeFlow.exe`.
 - **Display Profiles**: Switch between monitor setups such as Desktop, TV, or external screen layouts.
 - **Audio Output Switching**: Change the default audio output device as part of a profile.
-- **App Launching**: Start a selected application with an optional delay after applying a profile, with automatic cancellation protection.
+- **App Launching**: Launch a sequence of applications with custom delays and automatic termination protection on workspace switch.
 - **Global Hotkeys**: Use system-wide shortcuts to apply a specific profile or cycle through profiles.
 - **Logon Startup**: Apply your preferred profile automatically when you sign in to Windows.
 - **Startup Delay**: Add a configurable delay at logon to give display and audio drivers time to initialize.
@@ -51,7 +51,7 @@
 ## 🚀 Download
 
 1. Go to the **[Releases](https://github.com/goloveshko/ModeFlow/releases)** page.
-2. Download the latest `ModeFlow_v*.zip` file.
+2. Download the latest `ModeFlow-v*-win-x64.zip` file.
 3. Extract the ZIP to any folder.
 4. Run `ModeFlow.exe`.
 
@@ -84,8 +84,8 @@ The output will be generated in `build/bin/Release/ModeFlow.exe`.
 If ModeFlow fails to apply a profile during Windows logon (e.g., due to slow driver initialization):
 
 1. Open **Settings**.
-2. **Hold `Ctrl`** while enabling "Start ModeFlow with Windows".
-3. This registers the task with the `--log` flag. A `log.txt` will be created in the application directory to help diagnose timing issues.
+2. Enable the **"Enable diagnostic logging"** checkbox.
+3. A `log.txt` will be created in the application directory to help diagnose startup and driver timing issues.
 
 ### Logon Delay
 

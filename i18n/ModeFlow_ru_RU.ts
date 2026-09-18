@@ -893,7 +893,7 @@
         <translation>Действие при запуске:</translation>
     </message>
     <message>
-        <source>Interaction &amp; UI</source>
+        <source>Interaction &amp;&amp; UI</source>
         <translation>Интерфейс и взаимодействие</translation>
     </message>
     <message>

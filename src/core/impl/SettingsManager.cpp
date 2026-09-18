@@ -42,8 +42,8 @@ QFuture<bool> SettingsManager::autostartEnabledAsync() const {
     return m_autostartManager->checkIsRegisteredAsync();
 }
 
-QFuture<bool> SettingsManager::requestAutostartToggleAsync(bool enabled, int delay) {
-    return m_autostartManager->toggleAsync(enabled, delay);
+QFuture<bool> SettingsManager::requestAutostartToggleAsync(bool enabled, int delay, bool enableLogging) {
+    return m_autostartManager->toggleAsync(enabled, delay, enableLogging);
 }
 
 int SettingsManager::autostartDelay() const {

@@ -17,7 +17,7 @@ public:
 
     virtual bool autostartEnabled() const = 0;
     virtual QFuture<bool> autostartEnabledAsync() const = 0;
-    virtual QFuture<bool> requestAutostartToggleAsync(bool enabled, int delay) = 0;
+    virtual QFuture<bool> requestAutostartToggleAsync(bool enabled, int delay, bool enableLogging = false) = 0;
     virtual int autostartDelay() const = 0;
     virtual void setAutostartDelay(int seconds) = 0;
 

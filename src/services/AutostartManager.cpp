@@ -1,6 +1,5 @@
 ﻿#include "AutostartManager.h"
 
-#include <QGuiApplication>
 #include <QtConcurrent>
 
 #include "CommandLineBuilder.h"
@@ -18,20 +17,15 @@ QFuture<bool> AutostartManager::checkIsRegisteredAsync() {
     return QtConcurrent::run([]() { return Utils::TaskScheduler::isTaskRegistered(); });
 }
 
-QFuture<bool> AutostartManager::toggleAsync(bool checked, int delaySeconds) {
+QFuture<bool> AutostartManager::toggleAsync(bool checked, int delaySeconds, bool enableLogging) {
     return QtConcurrent::run([=]() {
         using namespace ModeFlow::Core;
 
         bool success = false;
 
-        const bool withLogs = shouldEnableStartupLogging(QGuiApplication::keyboardModifiers());
-
         if (Utils::TaskScheduler::isAdmin()) {
-            // --- Admin Mode: Direct Task Manipulation ---
-
             CommandLineBuilder taskArgsBuilder;
-
-            taskArgsBuilder.withLogon().withLog(withLogs);
+            taskArgsBuilder.withLogon().withLog(enableLogging);
 
             if (checked) {
                 success = Utils::TaskScheduler::createTaskAtLogon(taskArgsBuilder.toString(), delaySeconds, false);
@@ -39,12 +33,9 @@ QFuture<bool> AutostartManager::toggleAsync(bool checked, int delaySeconds) {
                 success = Utils::TaskScheduler::removeTask();
             }
         } else {
-            // --- User Mode: Elevation Required ---
-
             CommandLineBuilder elevationBuilder;
-
             if (checked) {
-                elevationBuilder.withRegister().withLogon().withDelay(delaySeconds).withLog(withLogs);
+                elevationBuilder.withRegister().withLogon().withDelay(delaySeconds).withLog(enableLogging);
             } else {
                 elevationBuilder.withUnregister();
             }
@@ -58,10 +49,6 @@ QFuture<bool> AutostartManager::toggleAsync(bool checked, int delaySeconds) {
 
 bool AutostartManager::isAutostartEnabled() const {
     return Utils::TaskScheduler::isTaskRegistered();
-}
-
-bool AutostartManager::shouldEnableStartupLogging(Qt::KeyboardModifiers modifiers) {
-    return modifiers.testFlag(Qt::ControlModifier);
 }
 
 } // namespace ModeFlow::Services

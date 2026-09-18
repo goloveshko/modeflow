@@ -11,8 +11,8 @@
 #include "IDialogManager.h"
 #include "ISettingsManager.h"
 #include "IWorkspaceManager.h"
-#include "LogManager.h"
 #include "Logging.h"
+#include "LogManager.h"
 #include "StyleUtils.h"
 
 namespace ModeFlow::Gui {
@@ -73,7 +73,8 @@ bool SettingsDialog::saveSettings() {
     if (autostartNeedsUpdate) {
         ui->buttonBox->button(QDialogButtonBox::Save)->setEnabled(false);
 
-        m_settingsManager->requestAutostartToggleAsync(newState.autostartEnabled, newState.autostartDelay)
+        m_settingsManager
+            ->requestAutostartToggleAsync(newState.autostartEnabled, newState.autostartDelay, newState.autoLogging)
             .then(this, [this, previousState, newState](bool success) {
                 ui->buttonBox->button(QDialogButtonBox::Save)->setEnabled(true);
 
@@ -85,7 +86,8 @@ bool SettingsDialog::saveSettings() {
                         BaseDialog::accept();
                     } else {
                         m_settingsManager
-                            ->requestAutostartToggleAsync(previousState.autostartEnabled, previousState.autostartDelay)
+                            ->requestAutostartToggleAsync(previousState.autostartEnabled, previousState.autostartDelay,
+                                                          previousState.autoLogging)
                             .then(this, [this, previousState](bool) {
                                 applySettingsState(previousState);
                                 ui->checkAutostart->setChecked(previousState.autostartEnabled);
@@ -238,8 +240,9 @@ bool SettingsDialog::requiresElevation() const {
 bool SettingsDialog::shouldUpdateAutostart(const FormState& from, const FormState& to) const {
     const bool autostartChanged = to.autostartEnabled != from.autostartEnabled;
     const bool delayChangedWhileEnabled = to.autostartEnabled && to.autostartDelay != from.autostartDelay;
+    const bool loggingChangedWhileEnabled = to.autostartEnabled && to.autoLogging != from.autoLogging;
 
-    return autostartChanged || delayChangedWhileEnabled;
+    return autostartChanged || delayChangedWhileEnabled || loggingChangedWhileEnabled;
 }
 
 void SettingsDialog::applySettingsState(const FormState& state) {
@@ -265,26 +268,9 @@ void SettingsDialog::refreshActionButtons() {
 
     if (requiresElevation() && !Services::AutostartManager::isAdmin()) {
         saveButton->setIcon(qApp->style()->standardIcon(QStyle::SP_VistaShield));
+        saveButton->setToolTip(tr("Administrative privileges are required to apply these changes."));
     } else {
         saveButton->setIcon(QIcon());
-    }
-
-    const auto state = currentFormState();
-    const bool autostartWillBeAdded = state.autostartEnabled && !m_initialState.autostartEnabled;
-    const bool autostartTaskWillBeUpdated = state.autostartEnabled && m_initialState.autostartEnabled &&
-                                            state.autostartDelay != m_initialState.autostartDelay;
-
-    const auto toolTipAdmin = tr("Administrative privileges are required to apply these changes.");
-    const auto toolTipAdminTip = tr("Hold Ctrl while clicking Save to enable startup logging for troubleshooting.");
-
-    if (autostartWillBeAdded || autostartTaskWillBeUpdated) {
-        saveButton->setToolTip(u"<html><head/><body><p>%1</p>"
-                               "<p><span style=\" font-weight:700;\">%2</span>: "
-                               "<span style=\" font-style:italic;\">%3</span></p>"
-                               "</body></html>"_s.arg(toolTipAdmin, tr("Tip"), toolTipAdminTip));
-    } else if (requiresElevation()) {
-        saveButton->setToolTip(toolTipAdmin);
-    } else {
         saveButton->setToolTip(QString());
     }
 }

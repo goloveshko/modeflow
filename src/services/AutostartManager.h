@@ -13,9 +13,8 @@ public:
     static bool isAdmin();
 
     QFuture<bool> checkIsRegisteredAsync();
-    QFuture<bool> toggleAsync(bool checked, int delaySeconds);
+    QFuture<bool> toggleAsync(bool checked, int delaySeconds, bool enableLogging = false);
 
     bool isAutostartEnabled() const;
-    static bool shouldEnableStartupLogging(Qt::KeyboardModifiers modifiers);
 };
 } // namespace ModeFlow::Services
