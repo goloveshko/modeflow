@@ -20,12 +20,21 @@ target_link_libraries(${TEST_TARGET}
 # Add CTest registration
 add_test(NAME ${TEST_TARGET} COMMAND ${TEST_TARGET})
 
-# Configure Visual Studio start-up debugging environment for the test runner
-if(WIN32 AND CMAKE_PREFIX_PATH)
-    set(_modeflow_qt_prefix "${CMAKE_PREFIX_PATH}")
-    set(_modeflow_qt_bin_dir "${_modeflow_qt_prefix}/bin")
-    set_tests_properties(${TEST_TARGET} PROPERTIES
-        ENVIRONMENT
-            "PATH=${_modeflow_qt_bin_dir};$ENV{PATH};QT_PLUGIN_PATH=${_modeflow_qt_prefix}/plugins"
-    )
+# Configure runtime test environment for CTest (dynamic Qt bin path resolution)
+if(WIN32)
+    get_target_property(_qt_core_location Qt6::Core LOCATION)
+    get_filename_component(_qt_bin_dir "${_qt_core_location}" DIRECTORY)
+    get_filename_component(_qt_prefix_dir "${_qt_bin_dir}/.." ABSOLUTE)
+
+    if(CMAKE_VERSION VERSION_GREATER_EQUAL "3.22")
+        set_property(TEST ${TEST_TARGET} PROPERTY ENVIRONMENT_MODIFICATION
+            "PATH=path_list_prepend:${_qt_bin_dir}"
+            "QT_PLUGIN_PATH=set:${_qt_prefix_dir}/plugins"
+        )
+    else()
+        set_property(TEST ${TEST_TARGET} PROPERTY ENVIRONMENT
+            "PATH=${_qt_bin_dir}\\;$ENV{PATH}"
+            "QT_PLUGIN_PATH=${_qt_prefix_dir}/plugins"
+        )
+    endif()
 endif()

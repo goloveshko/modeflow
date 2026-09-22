@@ -7,13 +7,13 @@
 #include <QtTest>
 
 // Explicitly include required Qt and core types
+#include <optional>
 #include <QDir>
 #include <QFile>
 #include <QFileInfo>
 #include <QPair>
 #include <QPoint>
 #include <QSize>
-#include <optional>
 
 #include "AppLauncher.h"
 #include "AudioDeviceManager.h"
@@ -201,7 +201,7 @@ public:
         return QtFuture::makeReadyValueFuture(autostartEnabledValue);
     }
 
-    QFuture<bool> requestAutostartToggleAsync(bool enabled, int delay) override {
+    QFuture<bool> requestAutostartToggleAsync(bool enabled, int delay, bool enableLogging = false) override {
         autostartRequests.append({enabled, delay});
         if (!autostartToggleShouldSucceed) {
             return QtFuture::makeReadyValueFuture(false);
@@ -502,7 +502,6 @@ private slots:
     void workspaceDeleteSaveFailureDoesNotEmitRefresh();
     void settingsAcceptCommitsAutostartAndConfig();
     void settingsAcceptRollsBackOnSaveFailure();
-    void startupLoggingRequiresCtrl();
     void commandLineBuilder_generatesCorrectArguments();
     void cliParser_parsesArgumentsCorrectly();
     void configManager_isThreadSafeAndConsistent();
@@ -688,16 +687,6 @@ void ModeFlowTests::settingsAcceptRollsBackOnSaveFailure() {
     QCOMPARE(settingsManager.audioConfirmationEnabled, true);
     QCOMPARE(settingsManager.languageCode, QStringLiteral("en_US"));
     QCOMPARE(dialog.result(), 0);
-}
-
-void ModeFlowTests::startupLoggingRequiresCtrl() {
-    using ModeFlow::Services::AutostartManager;
-
-    QVERIFY(!AutostartManager::shouldEnableStartupLogging(Qt::NoModifier));
-    QVERIFY(AutostartManager::shouldEnableStartupLogging(Qt::ControlModifier));
-    QVERIFY(AutostartManager::shouldEnableStartupLogging(Qt::ControlModifier | Qt::ShiftModifier));
-    QVERIFY(!AutostartManager::shouldEnableStartupLogging(Qt::AltModifier));
-    QVERIFY(!AutostartManager::shouldEnableStartupLogging(Qt::ShiftModifier));
 }
 
 void ModeFlowTests::commandLineBuilder_generatesCorrectArguments() {
