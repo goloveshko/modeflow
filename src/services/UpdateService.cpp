@@ -27,7 +27,7 @@ QString sanitizeVersion(QString version) {
 
 UpdateService::UpdateService(Core::ConfigManager* configManager, QObject* parent)
     : QObject(parent), m_configManager(configManager) {
-    m_network.setTransferTimeout(15000);
+    m_network.setTransferTimeout(Utils::UpdateTransferTimeoutMs);
 
     const QString cacheDir = QStandardPaths::writableLocation(QStandardPaths::CacheLocation);
     m_cacheFilePath = QDir::toNativeSeparators(cacheDir + u"/update_cache.json"_s);
@@ -62,6 +62,7 @@ void UpdateService::checkForUpdates(bool force) {
     QNetworkRequest request(manifestUrl);
     request.setRawHeader("User-Agent", APP_INTERNAL_NAME " UpdateChecker");
     request.setRawHeader("Accept", "application/vnd.github+json");
+    request.setRawHeader("X-GitHub-Api-Version", "2022-11-28");
     request.setAttribute(QNetworkRequest::RedirectPolicyAttribute, QNetworkRequest::NoLessSafeRedirectPolicy);
 
     QNetworkReply* reply = m_network.get(request);
@@ -132,7 +133,7 @@ void UpdateService::onCheckReply(QNetworkReply* reply) {
     emit updateAvailable(latestVersion, downloadUrl, changelog);
 }
 
-bool UpdateService::isNewerVersion(const QString& remote, const QString& local) const {
+bool UpdateService::isNewerVersion(const QString& remote, const QString& local) {
     const auto remoteVer = QVersionNumber::fromString(sanitizeVersion(remote));
     const auto localVer = QVersionNumber::fromString(sanitizeVersion(local));
 
@@ -150,7 +151,6 @@ bool UpdateService::shouldCheck() const {
 void UpdateService::markChecked() {
     if (m_configManager) {
         m_configManager->setLastUpdateCheckTimestamp(QDateTime::currentMSecsSinceEpoch());
-        m_configManager->saveConfig();
     }
 }
 

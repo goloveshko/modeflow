@@ -76,4 +76,9 @@ inline constexpr QStringView DefaultQtStyleKey = u"windows11";
 /** Minimum interval between automatic update checks (ms) — 24 hours */
 constexpr int UpdateCheckIntervalMs = 24 * 3600 * 1000;
 
+/** Network transfer timeout for update check requests (ms) */
+constexpr int UpdateTransferTimeoutMs = 15000;
+static_assert(UpdateTransferTimeoutMs >= 1000 && UpdateTransferTimeoutMs <= 60000,
+              "UpdateTransferTimeoutMs must be between 1s and 60s");
+
 } // namespace ModeFlow::Utils

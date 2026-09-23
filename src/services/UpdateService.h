@@ -23,6 +23,8 @@ public:
     QUrl downloadUrl() const { return m_downloadUrl; }
     QString changelog() const { return m_changelog; }
 
+    static bool isNewerVersion(const QString& remote, const QString& local);
+
 signals:
     void updateAvailable(const QString& version, const QUrl& url, const QString& changelog);
     void noUpdateAvailable();
@@ -37,7 +39,6 @@ private:
     void loadCachedUpdate();
     void saveUpdateToCache(const QJsonObject&);
     void clearCache();
-    bool isNewerVersion(const QString& remote, const QString& local) const;
 
     QNetworkAccessManager m_network;
     QString m_cacheFilePath;
