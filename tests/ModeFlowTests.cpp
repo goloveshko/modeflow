@@ -32,6 +32,7 @@
 #include "LocalizationManager.h"
 #include "MainWindow.h"
 #include "SettingsDialog.h"
+#include "UpdateService.h"
 #include "WorkspaceModel.h"
 #include "WorkspaceService.h"
 
@@ -536,6 +537,7 @@ private slots:
     void winKeyTranslator_translatesCorrectly();
 
     void settingsDialog_hotkeyConflict_showsWarningViaDialogManager();
+    void updateService_versionComparison();
 };
 
 void ModeFlowTests::initTestCase() {
@@ -1200,6 +1202,21 @@ void ModeFlowTests::settingsDialog_hotkeyConflict_showsWarningViaDialogManager()
 
     // FakeDialogManager should be called if there's any conflict or validation warning
     QVERIFY(dialog.result() == 0);
+}
+
+void ModeFlowTests::updateService_versionComparison() {
+    using ModeFlow::Services::UpdateService;
+
+    QVERIFY(UpdateService::isNewerVersion(QStringLiteral("1.0.0"), QStringLiteral("0.9.0")));
+    QVERIFY(UpdateService::isNewerVersion(QStringLiteral("v1.0.0"), QStringLiteral("0.9.0")));
+    QVERIFY(UpdateService::isNewerVersion(QStringLiteral("1.0.1"), QStringLiteral("1.0.0")));
+    QVERIFY(UpdateService::isNewerVersion(QStringLiteral("v1.10.0"), QStringLiteral("1.9.0")));
+    QVERIFY(UpdateService::isNewerVersion(QStringLiteral("2.0.0"), QStringLiteral("1.9.9")));
+
+    QVERIFY(!UpdateService::isNewerVersion(QStringLiteral("1.0.0"), QStringLiteral("1.0.0")));
+    QVERIFY(!UpdateService::isNewerVersion(QStringLiteral("v1.0.0"), QStringLiteral("1.0.0")));
+    QVERIFY(!UpdateService::isNewerVersion(QStringLiteral("0.9.0"), QStringLiteral("1.0.0")));
+    QVERIFY(!UpdateService::isNewerVersion(QStringLiteral("0.9.9"), QStringLiteral("1.0.0")));
 }
 
 QTEST_MAIN(ModeFlowTests)
