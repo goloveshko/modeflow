@@ -507,7 +507,7 @@ Convenience wrappers:
 
         $CmakeArgs = @(
             "--preset", $PresetName,
-            "--no-warn-unused-cli",
+            "-Wno-unused-cli",
             "-DGITHUB_URL=$($env:GITHUB_URL)",
             "-DUPDATE_URL=$($env:UPDATE_URL)",
             "-DLICENSE_URL=$($env:LICENSE_URL)",
