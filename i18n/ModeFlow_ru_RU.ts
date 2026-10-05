@@ -665,14 +665,6 @@
         <translation>Для применения этих изменений требуются права администратора.</translation>
     </message>
     <message>
-        <source>Hold Ctrl while clicking Save to enable startup logging for troubleshooting.</source>
-        <translation>Удерживайте Ctrl при нажатии «Сохранить», чтобы включить лог запуска для диагностики.</translation>
-    </message>
-    <message>
-        <source>Tip</source>
-        <translation>Совет</translation>
-    </message>
-    <message>
         <source>Do Nothing</source>
         <translation>Ничего не делать</translation>
     </message>
