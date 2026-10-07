@@ -652,7 +652,7 @@ Convenience wrappers:
             # Generate pre-rendered release notes for GitHub Publication from changelog.md
             $ChangelogFile = Join-Path $MetadataDir "changelog.md"
             if (Test-Path $ChangelogFile) {
-                $RawChangelog = Get-Content $ChangelogFile -Raw
+                $RawChangelog = [System.IO.File]::ReadAllText($ChangelogFile, [System.Text.Encoding]::UTF8)
                 $RenderedChangelog = $RawChangelog.Replace('{VERSION}', $AppVersion)
                 $ReleaseNotesDst = Join-Path $ArtifactsDir "release_notes.md"
                 $Utf8NoBom = [System.Text.UTF8Encoding]::new($false)
