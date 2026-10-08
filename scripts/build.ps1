@@ -633,9 +633,6 @@ Convenience wrappers:
             $LicenseSrc = Get-ChildItem -Path $RootDir -Filter "LICENSE*" | Select-Object -First 1
             if ($LicenseSrc) { Copy-Item -Path $LicenseSrc.FullName -Destination (Join-Path $StagingDir "LICENSE.txt") -Force }
 
-            $ReadmeSrc = Join-Path $RootDir "README.md"
-            if (Test-Path $ReadmeSrc) { Copy-Item -Path $ReadmeSrc -Destination $StagingDir -Force }
-
             $NoticesSrc = Join-Path $RootDir "THIRD_PARTY_NOTICES.md"
             if (Test-Path $NoticesSrc) { Copy-Item -Path $NoticesSrc -Destination (Join-Path $StagingDir "THIRD_PARTY_NOTICES.txt") -Force }
 
