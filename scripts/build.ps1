@@ -106,23 +106,32 @@ Convenience wrappers:
 
     $Stopwatch = [System.Diagnostics.Stopwatch]::StartNew()
 
-    # ─────────────────────────────────────────────────────────
+    # ─────────────────────────────────────────────────────────────
     # 1. Environment Overrides & Path Setup
-    # ─────────────────────────────────────────────────────────
+    # ─────────────────────────────────────────────────────────────
     $RootDir = Resolve-Path "$PSScriptRoot\.."
     Set-Location $RootDir
 
-    # Load local environment overrides from environment.ps1
+    # Load local environment overrides from environment.ps1 (toolchain paths + dev overrides)
     $EnvPs1 = Join-Path $PSScriptRoot "environment.ps1"
     if (Test-Path $EnvPs1) {
         Write-Host "[ENV] Loading overrides from $EnvPs1" -ForegroundColor Gray
         . $EnvPs1
     }
 
-    # Production Defaults (Single Source of Truth)
-    if (-not $env:GITHUB_URL) { $env:GITHUB_URL = "https://github.com/goloveshko/ModeFlow" }
-    if (-not $env:LICENSE_URL) { $env:LICENSE_URL = "$($env:GITHUB_URL)/blob/main/LICENSE" }
-    if (-not $env:UPDATE_URL) { $env:UPDATE_URL = "https://api.github.com/repos/goloveshko/ModeFlow/releases/latest" }
+    # When packaging a release (--package), always enforce official production URLs,
+    # ignoring any local dev server overrides from environment.ps1
+    if ($Package) {
+        Write-Host "[RELEASE] Packaging mode: enforcing official production URLs..." -ForegroundColor Cyan
+        $env:GITHUB_URL = "https://github.com/goloveshko/ModeFlow"
+        $env:LICENSE_URL = "$($env:GITHUB_URL)/blob/main/LICENSE"
+        $env:UPDATE_URL = "https://api.github.com/repos/goloveshko/ModeFlow/releases/latest"
+    } else {
+        # Production defaults for dev/debug builds (if not overridden by environment.ps1)
+        if (-not $env:GITHUB_URL) { $env:GITHUB_URL = "https://github.com/goloveshko/ModeFlow" }
+        if (-not $env:LICENSE_URL) { $env:LICENSE_URL = "$($env:GITHUB_URL)/blob/main/LICENSE" }
+        if (-not $env:UPDATE_URL) { $env:UPDATE_URL = "https://api.github.com/repos/goloveshko/ModeFlow/releases/latest" }
+    }
 
     # Application & Folder Names
     $AppNameBase = "ModeFlow"
@@ -176,18 +185,18 @@ Convenience wrappers:
         }
     }
 
-    # ─────────────────────────────────────────────────────────
+    # ─────────────────────────────────────────────────────────────
     # 2. Kill Running Instance (if requested)
-    # ─────────────────────────────────────────────────────────
+    # ─────────────────────────────────────────────────────────────
     if ($KillRunning) {
         Write-Step "Checking for running instances of $AppName..."
         Get-Process -Name $AppNameBase -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
         Write-Success "Terminated running instances."
     }
 
-    # ─────────────────────────────────────────────────────────
+    # ─────────────────────────────────────────────────────────────
     # 3. Translation Tools (lupdate / lrelease) & Qt Dir Detection
-    # ─────────────────────────────────────────────────────────
+    #─────────────────────────────────────────────────────────────
     if (-not $QtDir) {
         if ($env:QT_DIR) {
             $QtDir = $env:QT_DIR
@@ -259,9 +268,9 @@ Convenience wrappers:
         exit 0
     }
 
-    # ─────────────────────────────────────────────────────────
+    # ─────────────────────────────────────────────────────────────
     # 4. Code Formatting (clang-format)
-    # ─────────────────────────────────────────────────────────
+    # ─────────────────────────────────────────────────────────────
     if ($Format) {
         Write-Step "Running clang-format on src/ and tests/..."
         $ClangFormat = "clang-format.exe"
@@ -290,9 +299,9 @@ Convenience wrappers:
         exit 0
     }
 
-    # ─────────────────────────────────────────────────────────
+    # ─────────────────────────────────────────────────────────────
     # 5. vcpkg Static Qt Check & Toolchain Auto-Detection
-    # ─────────────────────────────────────────────────────────
+    # ─────────────────────────────────────────────────────────────
     $VcpkgToolchain = $null
 
     if ($Static) {
@@ -335,9 +344,9 @@ Convenience wrappers:
         }
     }
 
-    # ─────────────────────────────────────────────────────────
+    # ─────────────────────────────────────────────────────────────
     # 6. MSVC Toolchain & Preset Setup
-    # ─────────────────────────────────────────────────────────
+    # ─────────────────────────────────────────────────────────────
     $InstallPath = $null
 
     if (-not (Get-Command "cl.exe" -ErrorAction SilentlyContinue)) {
@@ -426,9 +435,9 @@ Convenience wrappers:
         $ConfigsToBuild = @("Debug", "Release")
     }
 
-    # ─────────────────────────────────────────────────────────
+    # ─────────────────────────────────────────────────────────────
     # 6.1 Standalone Deploy Shortcut (Fast-path if already compiled)
-    # ─────────────────────────────────────────────────────────
+    # ─────────────────────────────────────────────────────────────
     $IsStandaloneDeploy = $Deploy -and -not $Clean -and -not $Test -and -not $Package -and -not $BuildQt
 
     if ($IsStandaloneDeploy) {
@@ -499,9 +508,9 @@ Convenience wrappers:
         Write-Success "Clean completed."
     }
 
-    # ─────────────────────────────────────────────────────────
+    # ─────────────────────────────────────────────────────────────
     # 7. Configure, Build, and Deploy Loop
-    # ─────────────────────────────────────────────────────────
+    # ─────────────────────────────────────────────────────────────
     foreach ($Config in $ConfigsToBuild) {
         Write-Step "Configuring and Building Preset: $PresetName ($Config)..."
 
@@ -662,9 +671,9 @@ Convenience wrappers:
         }
     }
 
-    # ─────────────────────────────────────────────────────────
+    # ─────────────────────────────────────────────────────────────
     # Summary
-    # ─────────────────────────────────────────────────────────
+    # ─────────────────────────────────────────────────────────────
     $Stopwatch.Stop()
     $ElapsedSec = [math]::Round($Stopwatch.Elapsed.TotalSeconds, 2)
     Write-Success "Master Build Pipeline finished in $ElapsedSec seconds.`n"
