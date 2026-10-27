@@ -745,6 +745,10 @@
         <source>Failed to start application: %1</source>
         <translation>Не удалось запустить приложение: %1</translation>
     </message>
+    <message>
+        <source>The scheduled application could not be launched: %1</source>
+        <translation>Не удалось запустить запланированное приложение: %1</translation>
+    </message>
 </context>
 <context>
     <name>ModeFlow::Services::AudioDeviceManager</name>

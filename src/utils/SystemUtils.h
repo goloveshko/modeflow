@@ -22,7 +22,24 @@ public:
 
     static bool isValidExecutablePath(const QString& path);
 
-    static bool terminateProcess(qint64 pid);
+    /**
+     * @brief Open an opaque handle to a process, or null when it is already gone.
+     *
+     * Keeping the handle open is what makes the PID trustworthy: Windows does not recycle a process
+     * identifier while a handle to it is still held.
+     */
+    static void* openProcessHandle(qint64 pid);
+
+    static bool isProcessRunning(void* handle);
+    static void closeProcessHandle(void* handle);
+
+    /**
+     * @brief Ask a process's own top-level windows to close, the same way the close button does.
+     *
+     * The application may save data or refuse, so nothing is killed. Returns false when the process
+     * has no window to ask.
+     */
+    static bool requestProcessClose(qint64 pid);
 
     static bool restartApplication(const QStringList& arguments);
 };

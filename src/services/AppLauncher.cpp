@@ -28,22 +28,26 @@ QStringList getBlockedSystemPaths() {
 
 AppLauncher::AppLauncher(QObject* parent) : QObject(parent) {}
 
-bool AppLauncher::launch(const QString& path, int delaySeconds) {
-    if (path.isEmpty()) {
-        return true;
+AppLauncher::~AppLauncher() {
+    for (const auto& processes : std::as_const(m_activeProcesses)) {
+        for (const auto& process : processes) {
+            Utils::SystemUtils::closeProcessHandle(process.handle);
+        }
     }
+}
 
+bool AppLauncher::validateExecutable(const QString& path, QString& error) const {
     QFileInfo checkFile(path);
 
     if (checkFile.isSymLink()) {
         qCWarning(lcService) << "Symlinks are not allowed:" << path;
-        emit errorOccurred(tr("Refusing to launch a symbolic link: %1").arg(path));
+        error = tr("Refusing to launch a symbolic link: %1").arg(path);
         return false;
     }
 
     if (!checkFile.exists() || !checkFile.isFile()) {
         qCWarning(lcService) << "File does not exist:" << path;
-        emit errorOccurred(tr("Application file does not exist: %1").arg(path));
+        error = tr("Application file does not exist: %1").arg(path);
         return false;
     }
 
@@ -56,7 +60,7 @@ bool AppLauncher::launch(const QString& path, int delaySeconds) {
 
         if (!relative.startsWith(u"../"_s) && relative != u".."_s) {
             qCWarning(lcService) << "System path blocked (containment detected):" << canonicalPath;
-            emit errorOccurred(tr("Launching system executables is blocked: %1").arg(canonicalPath));
+            error = tr("Launching system executables is blocked: %1").arg(canonicalPath);
             return false;
         }
     }
@@ -64,22 +68,16 @@ bool AppLauncher::launch(const QString& path, int delaySeconds) {
     const QString suffix = checkFile.suffix().toLower();
     if (suffix != u"exe"_s) {
         qCWarning(lcService) << "Only .exe files are allowed:" << path << " (." << suffix << ")";
-        emit errorOccurred(tr("Only .exe files can be launched: %1").arg(path));
+        error = tr("Only .exe files can be launched: %1").arg(path);
         return false;
     }
 
-    if (delaySeconds <= 0) {
-        return execute(path) > 0;
-    } else {
-        qCDebug(lcService) << "Scheduled launch in" << delaySeconds << "sec for:" << path;
-        QTimer::singleShot(std::chrono::seconds(delaySeconds), this, [this, path]() { execute(path); });
-        return true;
-    }
+    return true;
 }
 
 bool AppLauncher::launchSequence(const QString& profileId, const QList<Core::AppLaunchConfig>& apps) {
-    if (apps.isEmpty())
-        return true;
+    bool immediateLaunchesAccepted = true;
+    int scheduledCount = 0;
 
     for (const auto& app : apps) {
         if (app.appPath.isEmpty())
@@ -106,46 +104,60 @@ bool AppLauncher::launchSequence(const QString& profileId, const QList<Core::App
 
             m_pendingTimers[profileId].append(timer);
             timer->start();
-            qCDebug(lcService) << "Scheduled delayed launch for" << app.appPath << "in" << app.delaySeconds
-                               << "seconds";
-        } else {
-            launchAndTrack(profileId, app);
+            ++scheduledCount;
+        } else if (!launchAndTrack(profileId, app)) {
+            immediateLaunchesAccepted = false;
         }
     }
 
-    return true;
+    if (scheduledCount > 0) {
+        qCDebug(lcService) << "Scheduled" << scheduledCount << "delayed launches for profile" << profileId;
+    }
+
+    return immediateLaunchesAccepted;
 }
 
-void AppLauncher::terminateProfileProcesses(const QString& profileId) {
-    auto it = m_activeProcesses.find(profileId);
-    if (it != m_activeProcesses.end()) {
-        for (qint64 pid : *it) {
-            if (pid <= 0)
-                continue;
-
-            if (Utils::SystemUtils::terminateProcess(pid)) {
-                qCDebug(lcService) << "Terminated process PID" << pid << "for profile" << profileId;
-            } else {
-                qCWarning(lcService) << "Failed to terminate process PID" << pid << "for profile" << profileId;
-            }
-        }
-        m_activeProcesses.erase(it);
-    }
-
-    // Abort and delete all scheduled delayed launch timers for this profile.
-    // This prevents "runaway" processes from launching on top of a newly applied workspace.
+void AppLauncher::cancelDelayedLaunches(const QString& profileId) {
     auto timerIt = m_pendingTimers.find(profileId);
-    if (timerIt != m_pendingTimers.end()) {
-        qCDebug(lcService) << "Cancelling" << timerIt.value().size() << "pending delayed launches for profile"
-                           << profileId;
-        for (QTimer* timer : timerIt.value()) {
-            if (timer) {
-                timer->stop();
-                timer->deleteLater();
-            }
-        }
-        m_pendingTimers.erase(timerIt);
+    if (timerIt == m_pendingTimers.end()) {
+        return;
     }
+
+    qCDebug(lcService) << "Cancelling" << timerIt.value().size() << "pending delayed launches for profile" << profileId;
+
+    for (QTimer* timer : timerIt.value()) {
+        if (timer) {
+            timer->stop();
+            timer->deleteLater();
+        }
+    }
+    m_pendingTimers.erase(timerIt);
+}
+
+void AppLauncher::closeProfileProcesses(const QString& profileId) {
+    auto it = m_activeProcesses.find(profileId);
+    if (it == m_activeProcesses.end()) {
+        return;
+    }
+
+    for (const TrackedProcess& process : *it) {
+        // An exited process can no longer be closed, and without a live handle the PID is not ours
+        // to act on any more.
+        if (!Utils::SystemUtils::isProcessRunning(process.handle)) {
+            Utils::SystemUtils::closeProcessHandle(process.handle);
+            continue;
+        }
+
+        if (Utils::SystemUtils::requestProcessClose(process.pid)) {
+            qCDebug(lcService) << "Asked process PID" << process.pid << "to close for profile" << profileId;
+        } else {
+            qCWarning(lcService) << "Process PID" << process.pid << "has no window to ask, leaving it running";
+        }
+
+        Utils::SystemUtils::closeProcessHandle(process.handle);
+    }
+
+    m_activeProcesses.erase(it);
 }
 
 qint64 AppLauncher::execute(const QString& path) {
@@ -164,16 +176,37 @@ qint64 AppLauncher::execute(const QString& path) {
     return pid;
 }
 
-void AppLauncher::trackProcess(const QString& profileId, qint64 pid) {
-    m_activeProcesses[profileId].append(pid);
-    qCDebug(lcService) << "Tracked process PID" << pid << "for profile" << profileId << "(closeOnExit is active)";
-}
-
-void AppLauncher::launchAndTrack(const QString& profileId, const Core::AppLaunchConfig& app) {
-    qint64 pid = execute(app.appPath);
-    if (pid > 0 && app.closeOnExit) {
-        trackProcess(profileId, pid);
+bool AppLauncher::launchAndTrack(const QString& profileId, const Core::AppLaunchConfig& app) {
+    QString error;
+    if (!validateExecutable(app.appPath, error)) {
+        // A delayed launch fires long after the profile finished applying, so its message has to say
+        // where it came from instead of reading like a launch the user just asked for.
+        emit errorOccurred(app.delaySeconds > 0 ? tr("The scheduled application could not be launched: %1").arg(error)
+                                                : error);
+        return false;
     }
+
+    const qint64 pid = execute(app.appPath);
+    if (pid <= 0) {
+        return false;
+    }
+
+    if (!app.closeOnExit) {
+        return true;
+    }
+
+    void* handle = Utils::SystemUtils::openProcessHandle(pid);
+    if (!handle) {
+        // Without a handle there is no way to tell later whether this PID still names our process,
+        // and closing a stranger's windows is not worth the risk. The application is running, we just
+        // cannot follow it.
+        qCWarning(lcService) << "Cannot watch process PID" << pid << ", it will be left running";
+        return true;
+    }
+
+    m_activeProcesses[profileId].append(TrackedProcess{pid, handle});
+    qCDebug(lcService) << "Tracked process PID" << pid << "for profile" << profileId << "(closeOnExit is active)";
+    return true;
 }
 
 } // namespace ModeFlow::Services

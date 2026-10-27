@@ -102,6 +102,9 @@ private:
     bool m_isApplyingProfile = false;
     bool m_isSwitchingDisplay = false;
     bool m_displaySwitchRequested = false;
+    // The profile the user is coming from, so its scheduled launches and applications can be handled
+    // once this switch reaches a conclusion.
+    QString m_outgoingProfileId;
     // Identifies the operation that is currently allowed to report a result, so a completion that
     // arrives after its own operation already ended is ignored instead of finishing the next one.
     quint64 m_operationId = 0;

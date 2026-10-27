@@ -7,16 +7,7 @@
 #include <QtConcurrent>
 #include <QtTest>
 
-#ifdef Q_OS_WIN
-// objidl.h carries the apartment enums used to probe COM state; objbase.h alone does not pull it in.
-#include <objbase.h>
-#include <objidl.h>
-#endif
-
 // Explicitly include required Qt and core types
-#include <memory>
-#include <optional>
-#include <vector>
 #include <QDir>
 #include <QFile>
 #include <QFileInfo>
@@ -26,6 +17,15 @@
 #include <QSize>
 #include <QTextStream>
 #include <atomic>
+#include <memory>
+#include <optional>
+#include <vector>
+
+#ifdef Q_OS_WIN
+// objidl.h carries the apartment enums used to probe COM state; objbase.h alone does not pull it in.
+#include <objbase.h>
+#include <objidl.h>
+#endif
 
 #include "AppLauncher.h"
 #include "AudioDeviceManager.h"
@@ -47,6 +47,7 @@
 #include "Logging.h"
 #include "MainWindow.h"
 #include "SettingsDialog.h"
+#include "SystemUtils.h"
 #include "UpdateService.h"
 #include "WorkspaceModel.h"
 #include "WorkspaceService.h"
@@ -384,17 +385,6 @@ class FakeAppLauncherForWS : public ModeFlow::Services::AppLauncher {
 public:
     using AppLauncher::AppLauncher;
 
-    bool launch(const QString& path, int delaySeconds) override {
-        Q_UNUSED(delaySeconds);
-        m_lastLaunchedPath = path;
-        ++m_launchCount;
-        if (m_launchShouldFail) {
-            emit errorOccurred(QStringLiteral("launch failed"));
-            return false;
-        }
-        return true;
-    }
-
     bool launchSequence(const QString& profileId, const QList<ModeFlow::Core::AppLaunchConfig>& apps) override {
         m_lastProfileId = profileId;
         m_lastApps = apps;
@@ -406,12 +396,16 @@ public:
         return true;
     }
 
-    QString m_lastLaunchedPath;
+    void cancelDelayedLaunches(const QString& profileId) override { m_cancelledProfileIds.append(profileId); }
+
+    void closeProfileProcesses(const QString& profileId) override { m_closedProfileIds.append(profileId); }
+
     QString m_lastProfileId;
     QList<ModeFlow::Core::AppLaunchConfig> m_lastApps;
-    int m_launchCount = 0;
     int m_launchSequenceCount = 0;
     bool m_launchShouldFail = false;
+    QStringList m_cancelledProfileIds;
+    QStringList m_closedProfileIds;
 };
 
 class FakeDialogManager : public ModeFlow::Core::IDialogManager {
@@ -563,10 +557,18 @@ private slots:
     void workspaceService_staleDisplayFailureDoesNotFinishNextProfile();
     void workspaceService_directDisplaySwitchReportsFailure();
     void workspaceService_directDisplaySwitchBlocksProfileApply();
+    void workspaceService_closesOutgoingAppsAfterDisplayIsConfirmed();
+    void workspaceService_failedDisplaySwitchKeepsOutgoingAppsOpen();
+    void workspaceService_displayTimeoutKeepsOutgoingAppsOpen();
+    void systemUtils_heldProcessHandleProvesTheProcessIsAlive();
 
-    void appLauncher_emptyPathReturnsTrue();
-    void appLauncher_nonExistentFileReturnsFalse();
-    void appLauncher_nonExeReturnsFalse();
+    void appLauncher_sequenceSkipsEmptyPaths();
+    void appLauncher_sequenceRefusesNonExistentPath();
+    void appLauncher_sequenceRefusesNonExePath();
+    void appLauncher_sequenceRefusesSystemExecutable();
+    void appLauncher_sequenceLaunchesValidExecutable();
+    void appLauncher_delayedLaunchIsScheduledAndReportsLateError();
+    void appLauncher_cancelledDelayedLaunchNeverStarts();
 
     void appLaunchConfig_jsonRoundTrip();
     void workspaceConfig_appsToLaunchJsonRoundTrip();
@@ -1099,33 +1101,429 @@ void ModeFlowTests::workspaceService_audioConfirmationDisabled() {
     QCOMPARE(feedbackSpy.count(), 0);
 }
 
-void ModeFlowTests::appLauncher_emptyPathReturnsTrue() {
-    ModeFlow::Services::AppLauncher launcher;
-    QVERIFY(launcher.launch(QString(), 0));
+namespace {
+ModeFlow::Core::WorkspaceConfig makeProfileForSwitch(const QString& id, const QString& displayName) {
+    ModeFlow::Core::WorkspaceConfig config;
+    config.id = id;
+    config.name = id;
+    config.displayId = displayName;
+    return config;
 }
+} // namespace
 
-void ModeFlowTests::appLauncher_nonExistentFileReturnsFalse() {
-    ModeFlow::Services::AppLauncher launcher;
-    QSignalSpy errorSpy(&launcher, &ModeFlow::Services::AppLauncher::errorOccurred);
+void ModeFlowTests::workspaceService_secondRequestIsRefusedWhileSwitching() {
+    using ModeFlow::Core::WorkspaceConfig;
+    using Service = ModeFlow::Core::WorkspaceService;
 
-    QVERIFY(!launcher.launch(QStringLiteral("C:\\nonexistent\\fake.exe"), 0));
+    FakeDisplayManagerForWS display;
+    display.m_currentDisplayKey = QStringLiteral("display-1");
+    display.m_deferSwitch = true;
+    FakeAudioDeviceManagerForWS audio;
+    FakeAppLauncherForWS launcher;
+
+    Service service(&display, &audio, &launcher);
+    service.setDisplayTimeout(5000);
+
+    QSignalSpy startedSpy(&service, &Service::configApplyStarted);
+    QSignalSpy finishedSpy(&service, &Service::configApplyFinished);
+    QSignalSpy errorSpy(&service, &Service::errorOccurred);
+
+    const WorkspaceConfig first = makeProfileForSwitch(QStringLiteral("p1"), QStringLiteral("display-2"));
+    const WorkspaceConfig second = makeProfileForSwitch(QStringLiteral("p2"), QStringLiteral("display-3"));
+
+    service.applyWorkspaceConfig(first);
+    QCOMPARE(startedSpy.count(), 1);
+
+    // A tray or hotkey press during a transition must not take over the operation in flight.
+    service.applyWorkspaceConfig(second);
+    QCOMPARE(startedSpy.count(), 1);
+    QCOMPARE(finishedSpy.count(), 0);
     QCOMPARE(errorSpy.count(), 1);
+    QCOMPARE(launcher.m_launchSequenceCount, 0);
+
+    display.finishDeferredSwitch(true);
+    QTest::qWait(50);
+    QCOMPARE(finishedSpy.count(), 0);
+
+    display.m_currentDisplayKey = QStringLiteral("display-2");
+    display.emitDisplaysChanged();
+
+    QCOMPARE(finishedSpy.count(), 1);
+    QCOMPARE(finishedSpy.at(0).at(0).value<WorkspaceConfig>().id, QStringLiteral("p1"));
+    QCOMPARE(finishedSpy.at(0).at(1).value<Service::ApplyStatus>(), Service::ApplyStatus::Success);
+    QCOMPARE(display.m_lastSwitchTarget, QStringLiteral("display-2"));
+    QVERIFY(!service.isSwitchInProgress());
 }
 
-void ModeFlowTests::appLauncher_nonExeReturnsFalse() {
+void ModeFlowTests::workspaceService_staleDisplayFailureDoesNotFinishNextProfile() {
+    using ModeFlow::Core::WorkspaceConfig;
+    using Service = ModeFlow::Core::WorkspaceService;
+
+    FakeDisplayManagerForWS display;
+    display.m_currentDisplayKey = QStringLiteral("display-1");
+    display.m_deferSwitch = true;
+    FakeAudioDeviceManagerForWS audio;
+    FakeAppLauncherForWS launcher;
+
+    Service service(&display, &audio, &launcher);
+    service.setDisplayTimeout(30);
+
+    QSignalSpy startedSpy(&service, &Service::configApplyStarted);
+    QSignalSpy finishedSpy(&service, &Service::configApplyFinished);
+    QSignalSpy errorSpy(&service, &Service::errorOccurred);
+
+    const WorkspaceConfig first = makeProfileForSwitch(QStringLiteral("p1"), QStringLiteral("display-2"));
+    const WorkspaceConfig second = makeProfileForSwitch(QStringLiteral("p2"), QStringLiteral("display-3"));
+
+    service.applyWorkspaceConfig(first);
+    // The switch outlives its own timeout, so the operation is reported and closed.
+    QTest::qWait(120);
+    QCOMPARE(finishedSpy.count(), 1);
+    QCOMPARE(errorSpy.count(), 1);
+
+    // The second profile keeps its own switch open and gets a timeout long enough that only a stale
+    // callback could finish it.
+    service.setDisplayTimeout(5000);
+    display.m_deferSwitch = true;
+    service.applyWorkspaceConfig(second);
+    QCOMPARE(startedSpy.count(), 2);
+
+    // Now the abandoned first switch reports its failure. It belongs to a finished operation, so it
+    // may not decide the outcome of the profile that is being applied right now.
+    display.finishDeferredSwitch(false);
+    QTest::qWait(50);
+    QCOMPARE(finishedSpy.count(), 1);
+    QCOMPARE(errorSpy.count(), 1);
+
+    display.m_currentDisplayKey = QStringLiteral("display-3");
+    display.emitDisplaysChanged();
+
+    QCOMPARE(finishedSpy.count(), 2);
+    QCOMPARE(finishedSpy.at(1).at(0).value<WorkspaceConfig>().id, QStringLiteral("p2"));
+    QCOMPARE(finishedSpy.at(1).at(1).value<Service::ApplyStatus>(), Service::ApplyStatus::Success);
+    QVERIFY(!service.isSwitchInProgress());
+}
+
+void ModeFlowTests::workspaceService_directDisplaySwitchReportsFailure() {
+    using ModeFlow::Core::WorkspaceConfig;
+    using Service = ModeFlow::Core::WorkspaceService;
+
+    FakeDisplayManagerForWS display;
+    display.m_currentDisplayKey = QStringLiteral("display-1");
+    display.m_switchShouldFail = true;
+    FakeAudioDeviceManagerForWS audio;
+    FakeAppLauncherForWS launcher;
+
+    Service service(&display, &audio, &launcher);
+
+    QSignalSpy errorSpy(&service, &Service::errorOccurred);
+    QSignalSpy startedSpy(&service, &Service::configApplyStarted);
+
+    // The tray display submenu used to drop the future, so a failed switch stayed invisible.
+    service.switchDisplayDirectly(QStringLiteral("display-2"));
+    QTest::qWait(50);
+
+    QCOMPARE(errorSpy.count(), 1);
+    QVERIFY(!service.isSwitchInProgress());
+
+    service.switchDisplayDirectly(QString());
+    QCOMPARE(errorSpy.count(), 1);
+
+    const WorkspaceConfig profile = makeProfileForSwitch(QStringLiteral("p1"), QStringLiteral("display-1"));
+    service.applyWorkspaceConfig(profile);
+    QCOMPARE(startedSpy.count(), 1);
+}
+
+void ModeFlowTests::workspaceService_directDisplaySwitchBlocksProfileApply() {
+    using ModeFlow::Core::WorkspaceConfig;
+    using Service = ModeFlow::Core::WorkspaceService;
+
+    FakeDisplayManagerForWS display;
+    display.m_currentDisplayKey = QStringLiteral("display-1");
+    display.m_deferSwitch = true;
+    FakeAudioDeviceManagerForWS audio;
+    FakeAppLauncherForWS launcher;
+
+    Service service(&display, &audio, &launcher);
+    service.setDisplayTimeout(5000);
+
+    QSignalSpy startedSpy(&service, &Service::configApplyStarted);
+    QSignalSpy finishedSpy(&service, &Service::configApplyFinished);
+    QSignalSpy errorSpy(&service, &Service::errorOccurred);
+
+    service.switchDisplayDirectly(QStringLiteral("display-2"));
+    QVERIFY(service.isSwitchInProgress());
+
+    const WorkspaceConfig profile = makeProfileForSwitch(QStringLiteral("p1"), QStringLiteral("display-3"));
+    service.applyWorkspaceConfig(profile);
+    QCOMPARE(startedSpy.count(), 0);
+    QCOMPARE(errorSpy.count(), 1);
+
+    display.finishDeferredSwitch(true);
+    QTest::qWait(50);
+    QVERIFY(!service.isSwitchInProgress());
+
+    service.applyWorkspaceConfig(profile);
+    QCOMPARE(startedSpy.count(), 1);
+    QCOMPARE(finishedSpy.count(), 0);
+    QCOMPARE(display.m_lastSwitchTarget, QStringLiteral("display-3"));
+}
+
+namespace {
+// Landing on a profile that launches applications is what creates applications to close later.
+ModeFlow::Core::WorkspaceConfig profileWithApps(const QString& id, const QString& displayName) {
+    ModeFlow::Core::WorkspaceConfig config;
+    config.id = id;
+    config.name = id;
+    config.displayId = displayName;
+
+    ModeFlow::Core::AppLaunchConfig app;
+    app.appPath = QStringLiteral("C:\\Apps\\editor.exe");
+    app.closeOnExit = true;
+    config.appsToLaunch.append(app);
+
+    return config;
+}
+} // namespace
+
+void ModeFlowTests::workspaceService_closesOutgoingAppsAfterDisplayIsConfirmed() {
+    using ModeFlow::Core::WorkspaceConfig;
+    using Service = ModeFlow::Core::WorkspaceService;
+
+    FakeDisplayManagerForWS display;
+    display.m_currentDisplayKey = QStringLiteral("display-1");
+    FakeAudioDeviceManagerForWS audio;
+    FakeAppLauncherForWS launcher;
+
+    Service service(&display, &audio, &launcher);
+    service.setDisplayTimeout(5000);
+
+    const WorkspaceConfig incoming = profileWithApps(QStringLiteral("pA"), QStringLiteral("display-1"));
+    service.applyWorkspaceConfig(incoming);
+    QCOMPARE(launcher.m_launchSequenceCount, 1);
+    QCOMPARE(launcher.m_closedProfileIds.count(), 0);
+
+    display.m_deferSwitch = true;
+    const WorkspaceConfig outgoingNext = makeProfileForSwitch(QStringLiteral("pB"), QStringLiteral("display-2"));
+    service.applyWorkspaceConfig(outgoingNext);
+
+    // Scheduled launches are dropped immediately, running applications wait for the new screen.
+    QCOMPARE(launcher.m_cancelledProfileIds, QStringList{QStringLiteral("pA")});
+    QCOMPARE(launcher.m_closedProfileIds.count(), 0);
+
+    display.finishDeferredSwitch(true);
+    QTest::qWait(50);
+    QCOMPARE(launcher.m_closedProfileIds.count(), 0);
+
+    display.m_currentDisplayKey = QStringLiteral("display-2");
+    display.emitDisplaysChanged();
+
+    QCOMPARE(launcher.m_closedProfileIds, QStringList{QStringLiteral("pA")});
+    QCOMPARE(launcher.m_launchSequenceCount, 1);
+}
+
+void ModeFlowTests::workspaceService_failedDisplaySwitchKeepsOutgoingAppsOpen() {
+    using ModeFlow::Core::WorkspaceConfig;
+    using Service = ModeFlow::Core::WorkspaceService;
+
+    FakeDisplayManagerForWS display;
+    display.m_currentDisplayKey = QStringLiteral("display-1");
+    FakeAudioDeviceManagerForWS audio;
+    FakeAppLauncherForWS launcher;
+
+    Service service(&display, &audio, &launcher);
+    service.setDisplayTimeout(5000);
+
+    const WorkspaceConfig incoming = profileWithApps(QStringLiteral("pA"), QStringLiteral("display-1"));
+    service.applyWorkspaceConfig(incoming);
+
+    display.m_switchShouldFail = true;
+    const WorkspaceConfig next = makeProfileForSwitch(QStringLiteral("pB"), QStringLiteral("display-2"));
+    service.applyWorkspaceConfig(next);
+    QTest::qWait(50);
+
+    // The user is still on the old display, so nothing of profile A may be closed.
+    QCOMPARE(launcher.m_closedProfileIds.count(), 0);
+    QCOMPARE(display.m_lastSwitchTarget, QStringLiteral("display-2"));
+}
+
+void ModeFlowTests::workspaceService_displayTimeoutKeepsOutgoingAppsOpen() {
+    using ModeFlow::Core::WorkspaceConfig;
+    using Service = ModeFlow::Core::WorkspaceService;
+
+    FakeDisplayManagerForWS display;
+    display.m_currentDisplayKey = QStringLiteral("display-1");
+    display.m_deferSwitch = true;
+    FakeAudioDeviceManagerForWS audio;
+    FakeAppLauncherForWS launcher;
+
+    Service service(&display, &audio, &launcher);
+
+    const WorkspaceConfig incoming = profileWithApps(QStringLiteral("pA"), QStringLiteral("display-1"));
+    service.applyWorkspaceConfig(incoming);
+    QCOMPARE(launcher.m_launchSequenceCount, 1);
+
+    service.setDisplayTimeout(30);
+    const WorkspaceConfig next = makeProfileForSwitch(QStringLiteral("pB"), QStringLiteral("display-2"));
+    service.applyWorkspaceConfig(next);
+    QTest::qWait(120);
+
+    // A switch that never reported back is not a confirmed move, so profile A keeps its windows.
+    QCOMPARE(launcher.m_closedProfileIds.count(), 0);
+}
+
+void ModeFlowTests::systemUtils_heldProcessHandleProvesTheProcessIsAlive() {
+    using ModeFlow::Utils::SystemUtils;
+
+    // Our own process is the only process a test may inspect without touching anything else.
+    void* handle = SystemUtils::openProcessHandle(QCoreApplication::applicationPid());
+    QVERIFY(handle != nullptr);
+    QVERIFY(SystemUtils::isProcessRunning(handle));
+    SystemUtils::closeProcessHandle(handle);
+
+    // A closed-on-entry or unknown process has no handle, so it can never be mistaken for ours.
+    QVERIFY(SystemUtils::openProcessHandle(0) == nullptr);
+    QVERIFY(SystemUtils::openProcessHandle(static_cast<qint64>(0x7FFFFFFF)) == nullptr);
+    QVERIFY(!SystemUtils::isProcessRunning(nullptr));
+}
+
+namespace {
+// A launchable executable that is not one of the user's applications: the system copy stays where it
+// is and remains blocked by the containment check, while the copy in temp is a legitimate profile path.
+QString makeLaunchableExecutable(const QString& tag) {
+    const QString winDir = qEnvironmentVariable("windir");
+    const QStringList candidates = {QStringLiteral("whoami.exe"), QStringLiteral("find.exe"),
+                                    QStringLiteral("ping.exe")};
+
+    for (const QString& name : candidates) {
+        const QString source = QDir(winDir).filePath(QStringLiteral("System32/") + name);
+        if (!QFile::exists(source)) {
+            continue;
+        }
+
+        const QString target = QDir::tempPath() + QStringLiteral("/modeflow-launcher-%1.exe").arg(tag);
+        QFile::remove(target);
+        if (QFile::copy(source, target)) {
+            return target;
+        }
+    }
+
+    return QString();
+}
+} // namespace
+
+void ModeFlowTests::appLauncher_sequenceSkipsEmptyPaths() {
     ModeFlow::Services::AppLauncher launcher;
     QSignalSpy errorSpy(&launcher, &ModeFlow::Services::AppLauncher::errorOccurred);
 
-    const QString tempDir = QDir::tempPath();
-    const QString tempFile = tempDir + QStringLiteral("/test_launcher.txt");
+    const QList<ModeFlow::Core::AppLaunchConfig> apps = {ModeFlow::Core::AppLaunchConfig{}};
+    QVERIFY(launcher.launchSequence(QStringLiteral("p1"), apps));
+    QCOMPARE(errorSpy.count(), 0);
+}
+
+void ModeFlowTests::appLauncher_sequenceRefusesNonExistentPath() {
+    ModeFlow::Services::AppLauncher launcher;
+    QSignalSpy errorSpy(&launcher, &ModeFlow::Services::AppLauncher::errorOccurred);
+
+    ModeFlow::Core::AppLaunchConfig app;
+    app.appPath = QStringLiteral("C:\\nonexistent\\fake.exe");
+
+    // An imported profile never went through the UI picker, so the sequence itself has to refuse it.
+    QVERIFY(!launcher.launchSequence(QStringLiteral("p1"), {app}));
+    QCOMPARE(errorSpy.count(), 1);
+    QVERIFY(errorSpy.at(0).at(0).toString().contains(QStringLiteral("does not exist")));
+}
+
+void ModeFlowTests::appLauncher_sequenceRefusesNonExePath() {
+    ModeFlow::Services::AppLauncher launcher;
+    QSignalSpy errorSpy(&launcher, &ModeFlow::Services::AppLauncher::errorOccurred);
+
+    const QString tempFile = QDir::tempPath() + QStringLiteral("/modeflow-launcher-notes.txt");
     QFile file(tempFile);
     QVERIFY(file.open(QIODevice::WriteOnly));
     file.close();
 
-    QVERIFY(!launcher.launch(tempFile, 0));
+    ModeFlow::Core::AppLaunchConfig app;
+    app.appPath = tempFile;
+
+    QVERIFY(!launcher.launchSequence(QStringLiteral("p1"), {app}));
     QCOMPARE(errorSpy.count(), 1);
+    QVERIFY(errorSpy.at(0).at(0).toString().contains(QStringLiteral("Only .exe files can be launched")));
 
     QFile::remove(tempFile);
+}
+
+void ModeFlowTests::appLauncher_sequenceRefusesSystemExecutable() {
+    ModeFlow::Services::AppLauncher launcher;
+    QSignalSpy errorSpy(&launcher, &ModeFlow::Services::AppLauncher::errorOccurred);
+
+    const QString winDir = qEnvironmentVariable("windir");
+    const QString systemExe = QDir(winDir).filePath(QStringLiteral("System32\\whoami.exe"));
+    if (!QFile::exists(systemExe)) {
+        QWARN("No system executable found, skipping containment check.");
+        return;
+    }
+
+    ModeFlow::Core::AppLaunchConfig app;
+    app.appPath = systemExe;
+
+    QVERIFY(!launcher.launchSequence(QStringLiteral("p1"), {app}));
+    QCOMPARE(errorSpy.count(), 1);
+    QVERIFY(errorSpy.at(0).at(0).toString().contains(QStringLiteral("system executables is blocked")));
+}
+
+void ModeFlowTests::appLauncher_sequenceLaunchesValidExecutable() {
+    ModeFlow::Services::AppLauncher launcher;
+    QSignalSpy errorSpy(&launcher, &ModeFlow::Services::AppLauncher::errorOccurred);
+
+    const QString exe = makeLaunchableExecutable(QStringLiteral("valid"));
+    QVERIFY(!exe.isEmpty());
+
+    ModeFlow::Core::AppLaunchConfig app;
+    app.appPath = exe;
+
+    // Only a real startDetached success can make this true, so the shared validation must not refuse
+    // an ordinary executable outside the protected directories.
+    QVERIFY(launcher.launchSequence(QStringLiteral("p1"), {app}));
+    QCOMPARE(errorSpy.count(), 0);
+
+    // The copied image stays locked while the process runs, so give it a moment to finish first.
+    QTest::qWait(300);
+    QFile::remove(exe);
+}
+
+void ModeFlowTests::appLauncher_delayedLaunchIsScheduledAndReportsLateError() {
+    ModeFlow::Services::AppLauncher launcher;
+    QSignalSpy errorSpy(&launcher, &ModeFlow::Services::AppLauncher::errorOccurred);
+
+    ModeFlow::Core::AppLaunchConfig app;
+    app.appPath = QStringLiteral("C:\\nonexistent\\delayed.exe");
+    app.delaySeconds = 1;
+
+    // A delayed entry is only a promise at apply time, so the profile must not be reported as failed.
+    QVERIFY(launcher.launchSequence(QStringLiteral("p1"), {app}));
+    QCOMPARE(errorSpy.count(), 0);
+
+    QTest::qWait(1600);
+    QCOMPARE(errorSpy.count(), 1);
+    QVERIFY(
+        errorSpy.at(0).at(0).toString().startsWith(QStringLiteral("The scheduled application could not be launched")));
+}
+
+void ModeFlowTests::appLauncher_cancelledDelayedLaunchNeverStarts() {
+    ModeFlow::Services::AppLauncher launcher;
+    QSignalSpy errorSpy(&launcher, &ModeFlow::Services::AppLauncher::errorOccurred);
+
+    ModeFlow::Core::AppLaunchConfig app;
+    app.appPath = QStringLiteral("C:\\nonexistent\\delayed.exe");
+    app.delaySeconds = 1;
+
+    QVERIFY(launcher.launchSequence(QStringLiteral("p1"), {app}));
+    launcher.cancelDelayedLaunches(QStringLiteral("p1"));
+
+    // An attempt would have surfaced through validation, so silence here proves nothing was launched.
+    QTest::qWait(1600);
+    QCOMPARE(errorSpy.count(), 0);
 }
 
 void ModeFlowTests::hotkeyManager_resolveInitialProfileId_null() {
@@ -1412,175 +1810,6 @@ void ModeFlowTests::logManager_togglingWhileWorkersEmitKeepsLogFileConsistent() 
     QVERIFY2(!bytesSince(finalSize).contains(disabledProbe.toUtf8()),
              "A message was stored after logging was switched off");
 }
-
-namespace {
-ModeFlow::Core::WorkspaceConfig makeProfileForSwitch(const QString& id, const QString& displayName) {
-    ModeFlow::Core::WorkspaceConfig config;
-    config.id = id;
-    config.name = id;
-    config.displayId = displayName;
-    return config;
-}
-} // namespace
-
-void ModeFlowTests::workspaceService_secondRequestIsRefusedWhileSwitching() {
-    using ModeFlow::Core::WorkspaceConfig;
-    using Service = ModeFlow::Core::WorkspaceService;
-
-    FakeDisplayManagerForWS display;
-    display.m_currentDisplayKey = QStringLiteral("display-1");
-    display.m_deferSwitch = true;
-    FakeAudioDeviceManagerForWS audio;
-    FakeAppLauncherForWS launcher;
-
-    Service service(&display, &audio, &launcher);
-    service.setDisplayTimeout(5000);
-
-    QSignalSpy startedSpy(&service, &Service::configApplyStarted);
-    QSignalSpy finishedSpy(&service, &Service::configApplyFinished);
-    QSignalSpy errorSpy(&service, &Service::errorOccurred);
-
-    const WorkspaceConfig first = makeProfileForSwitch(QStringLiteral("p1"), QStringLiteral("display-2"));
-    const WorkspaceConfig second = makeProfileForSwitch(QStringLiteral("p2"), QStringLiteral("display-3"));
-
-    service.applyWorkspaceConfig(first);
-    QCOMPARE(startedSpy.count(), 1);
-
-    // A tray or hotkey press during a transition must not take over the operation in flight.
-    service.applyWorkspaceConfig(second);
-    QCOMPARE(startedSpy.count(), 1);
-    QCOMPARE(finishedSpy.count(), 0);
-    QCOMPARE(errorSpy.count(), 1);
-    QCOMPARE(launcher.m_launchSequenceCount, 0);
-
-    display.finishDeferredSwitch(true);
-    QTest::qWait(50);
-    QCOMPARE(finishedSpy.count(), 0);
-
-    display.m_currentDisplayKey = QStringLiteral("display-2");
-    display.emitDisplaysChanged();
-
-    QCOMPARE(finishedSpy.count(), 1);
-    QCOMPARE(finishedSpy.at(0).at(0).value<WorkspaceConfig>().id, QStringLiteral("p1"));
-    QCOMPARE(finishedSpy.at(0).at(1).value<Service::ApplyStatus>(), Service::ApplyStatus::Success);
-    QCOMPARE(display.m_lastSwitchTarget, QStringLiteral("display-2"));
-    QVERIFY(!service.isSwitchInProgress());
-}
-
-void ModeFlowTests::workspaceService_staleDisplayFailureDoesNotFinishNextProfile() {
-    using ModeFlow::Core::WorkspaceConfig;
-    using Service = ModeFlow::Core::WorkspaceService;
-
-    FakeDisplayManagerForWS display;
-    display.m_currentDisplayKey = QStringLiteral("display-1");
-    display.m_deferSwitch = true;
-    FakeAudioDeviceManagerForWS audio;
-    FakeAppLauncherForWS launcher;
-
-    Service service(&display, &audio, &launcher);
-    service.setDisplayTimeout(30);
-
-    QSignalSpy startedSpy(&service, &Service::configApplyStarted);
-    QSignalSpy finishedSpy(&service, &Service::configApplyFinished);
-    QSignalSpy errorSpy(&service, &Service::errorOccurred);
-
-    const WorkspaceConfig first = makeProfileForSwitch(QStringLiteral("p1"), QStringLiteral("display-2"));
-    const WorkspaceConfig second = makeProfileForSwitch(QStringLiteral("p2"), QStringLiteral("display-3"));
-
-    service.applyWorkspaceConfig(first);
-    // The switch outlives its own timeout, so the operation is reported and closed.
-    QTest::qWait(120);
-    QCOMPARE(finishedSpy.count(), 1);
-    QCOMPARE(errorSpy.count(), 1);
-
-    // The second profile keeps its own switch open and gets a timeout long enough that only a stale
-    // callback could finish it.
-    service.setDisplayTimeout(5000);
-    display.m_deferSwitch = true;
-    service.applyWorkspaceConfig(second);
-    QCOMPARE(startedSpy.count(), 2);
-
-    // Now the abandoned first switch reports its failure. It belongs to a finished operation, so it
-    // may not decide the outcome of the profile that is being applied right now.
-    display.finishDeferredSwitch(false);
-    QTest::qWait(50);
-    QCOMPARE(finishedSpy.count(), 1);
-    QCOMPARE(errorSpy.count(), 1);
-
-    display.m_currentDisplayKey = QStringLiteral("display-3");
-    display.emitDisplaysChanged();
-
-    QCOMPARE(finishedSpy.count(), 2);
-    QCOMPARE(finishedSpy.at(1).at(0).value<WorkspaceConfig>().id, QStringLiteral("p2"));
-    QCOMPARE(finishedSpy.at(1).at(1).value<Service::ApplyStatus>(), Service::ApplyStatus::Success);
-    QVERIFY(!service.isSwitchInProgress());
-}
-
-void ModeFlowTests::workspaceService_directDisplaySwitchReportsFailure() {
-    using ModeFlow::Core::WorkspaceConfig;
-    using Service = ModeFlow::Core::WorkspaceService;
-
-    FakeDisplayManagerForWS display;
-    display.m_currentDisplayKey = QStringLiteral("display-1");
-    display.m_switchShouldFail = true;
-    FakeAudioDeviceManagerForWS audio;
-    FakeAppLauncherForWS launcher;
-
-    Service service(&display, &audio, &launcher);
-
-    QSignalSpy errorSpy(&service, &Service::errorOccurred);
-    QSignalSpy startedSpy(&service, &Service::configApplyStarted);
-
-    // The tray display submenu used to drop the future, so a failed switch stayed invisible.
-    service.switchDisplayDirectly(QStringLiteral("display-2"));
-    QTest::qWait(50);
-
-    QCOMPARE(errorSpy.count(), 1);
-    QVERIFY(!service.isSwitchInProgress());
-
-    service.switchDisplayDirectly(QString());
-    QCOMPARE(errorSpy.count(), 1);
-
-    const WorkspaceConfig profile = makeProfileForSwitch(QStringLiteral("p1"), QStringLiteral("display-1"));
-    service.applyWorkspaceConfig(profile);
-    QCOMPARE(startedSpy.count(), 1);
-}
-
-void ModeFlowTests::workspaceService_directDisplaySwitchBlocksProfileApply() {
-    using ModeFlow::Core::WorkspaceConfig;
-    using Service = ModeFlow::Core::WorkspaceService;
-
-    FakeDisplayManagerForWS display;
-    display.m_currentDisplayKey = QStringLiteral("display-1");
-    display.m_deferSwitch = true;
-    FakeAudioDeviceManagerForWS audio;
-    FakeAppLauncherForWS launcher;
-
-    Service service(&display, &audio, &launcher);
-    service.setDisplayTimeout(5000);
-
-    QSignalSpy startedSpy(&service, &Service::configApplyStarted);
-    QSignalSpy finishedSpy(&service, &Service::configApplyFinished);
-    QSignalSpy errorSpy(&service, &Service::errorOccurred);
-
-    service.switchDisplayDirectly(QStringLiteral("display-2"));
-    QVERIFY(service.isSwitchInProgress());
-
-    const WorkspaceConfig profile = makeProfileForSwitch(QStringLiteral("p1"), QStringLiteral("display-3"));
-    service.applyWorkspaceConfig(profile);
-    QCOMPARE(startedSpy.count(), 0);
-    QCOMPARE(errorSpy.count(), 1);
-
-    display.finishDeferredSwitch(true);
-    QTest::qWait(50);
-    QVERIFY(!service.isSwitchInProgress());
-
-    service.applyWorkspaceConfig(profile);
-    QCOMPARE(startedSpy.count(), 1);
-    QCOMPARE(finishedSpy.count(), 0);
-    QCOMPARE(display.m_lastSwitchTarget, QStringLiteral("display-3"));
-}
-
 
 QTEST_MAIN(ModeFlowTests)
 

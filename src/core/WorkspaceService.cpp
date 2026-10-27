@@ -68,8 +68,11 @@ void WorkspaceService::applyWorkspaceConfig(const WorkspaceConfig& config) {
     m_isApplyingProfile = true;
     const quint64 operationId = ++m_operationId;
 
-    if (!m_pendingConfig.appsToLaunch.isEmpty()) {
-        m_appLauncher->terminateProfileProcesses(m_pendingConfig.id);
+    // A delayed launch must not appear on the workspace the user is leaving, so scheduled timers go
+    // away right away. Applications that are already running wait for the display switch itself.
+    m_outgoingProfileId = m_pendingConfig.id;
+    if (!m_outgoingProfileId.isEmpty()) {
+        m_appLauncher->cancelDelayedLaunches(m_outgoingProfileId);
     }
 
     m_pendingConfig = config;
@@ -184,6 +187,13 @@ void WorkspaceService::finalizeApplication(ApplyStatus status) {
         } else if (status == ApplyStatus::Success) {
             status = ApplyStatus::PartialSuccess;
         }
+    }
+
+    // Closing the outgoing profile's applications only makes sense once the display really moved: a
+    // failed or timed-out switch leaves the user on the old screen, where those windows belong.
+    const bool displayStepIsSettled = !m_displaySwitchRequested || m_displayChangeSucceeded;
+    if (displayStepIsSettled && !m_outgoingProfileId.isEmpty()) {
+        m_appLauncher->closeProfileProcesses(m_outgoingProfileId);
     }
 
     if (appLaunchConfigured) {

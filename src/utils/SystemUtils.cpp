@@ -18,6 +18,31 @@ namespace ModeFlow::Utils {
 
 using namespace Qt::StringLiterals;
 
+#ifdef Q_OS_WIN
+namespace {
+struct CloseVisitor {
+    DWORD targetPid = 0;
+    bool askedAnyWindow = false;
+};
+
+BOOL CALLBACK askWindowToClose(HWND hwnd, LPARAM lParam) {
+    auto* visitor = reinterpret_cast<CloseVisitor*>(lParam);
+
+    DWORD windowPid = 0;
+    GetWindowThreadProcessId(hwnd, &windowPid);
+
+    // Only a visible top-level window without an owner: that is the window the user would close, and
+    // hidden helper or owned windows would not let the application react to the request.
+    if (windowPid == visitor->targetPid && IsWindowVisible(hwnd) && GetWindow(hwnd, GW_OWNER) == nullptr) {
+        PostMessageW(hwnd, WM_CLOSE, 0, 0);
+        visitor->askedAnyWindow = true;
+    }
+
+    return TRUE;
+}
+} // namespace
+#endif // Q_OS_WIN
+
 bool SystemUtils::isSystemReady() {
     UINT32 pathCount = 0, modeCount = 0;
     if (GetDisplayConfigBufferSizes(QDC_ONLY_ACTIVE_PATHS, &pathCount, &modeCount) != ERROR_SUCCESS) {
@@ -124,20 +149,52 @@ bool SystemUtils::isValidExecutablePath(const QString& path) {
     return fi.exists() && fi.isFile() && !fi.isSymLink() && fi.suffix().toLower() == "exe";
 }
 
-bool SystemUtils::terminateProcess(qint64 pid) {
+void* SystemUtils::openProcessHandle(qint64 pid) {
     if (pid <= 0)
-        return false;
+        return nullptr;
 
 #ifdef Q_OS_WIN
-    HANDLE hProcess = OpenProcess(PROCESS_TERMINATE, FALSE, static_cast<DWORD>(pid));
-    if (hProcess) {
-        BOOL result = TerminateProcess(hProcess, 0);
-        CloseHandle(hProcess);
-        return result == TRUE;
-    }
+    // Watching a process needs only synchronize and query rights, which also works for a process
+    // that is not a child of this one.
+    return OpenProcess(SYNCHRONIZE | PROCESS_QUERY_LIMITED_INFORMATION, FALSE, static_cast<DWORD>(pid));
+#else
+    return nullptr;
 #endif
+}
 
+bool SystemUtils::isProcessRunning(void* handle) {
+#ifdef Q_OS_WIN
+    if (!handle)
+        return false;
+
+    // A zero-timeout wait avoids the STILL_ACTIVE ambiguity, where an exit code of 259 would look
+    // like a living process.
+    return WaitForSingleObject(static_cast<HANDLE>(handle), 0) == WAIT_TIMEOUT;
+#else
+    Q_UNUSED(handle);
     return false;
+#endif
+}
+
+void SystemUtils::closeProcessHandle(void* handle) {
+#ifdef Q_OS_WIN
+    if (handle) {
+        CloseHandle(static_cast<HANDLE>(handle));
+    }
+#else
+    Q_UNUSED(handle);
+#endif
+}
+
+bool SystemUtils::requestProcessClose(qint64 pid) {
+#ifdef Q_OS_WIN
+    CloseVisitor visitor{static_cast<DWORD>(pid)};
+    EnumWindows(askWindowToClose, reinterpret_cast<LPARAM>(&visitor));
+    return visitor.askedAnyWindow;
+#else
+    Q_UNUSED(pid);
+    return false;
+#endif
 }
 
 bool SystemUtils::restartApplication(const QStringList& arguments) {
