@@ -122,20 +122,12 @@ void SettingsManager::setMainWindowMaximized(bool maximized) {
     m_configManager->setMainWindowMaximized(maximized);
 }
 
-QPoint SettingsManager::mainWindowPos() const {
-    return m_configManager->mainWindowPos();
+QRect SettingsManager::mainWindowGeometry() const {
+    return m_configManager->mainWindowGeometry();
 }
 
-void SettingsManager::setMainWindowPos(const QPoint& pos) {
-    m_configManager->setMainWindowPos(pos);
-}
-
-QSize SettingsManager::mainWindowSize() const {
-    return m_configManager->mainWindowSize();
-}
-
-void SettingsManager::setMainWindowSize(const QSize& size) {
-    m_configManager->setMainWindowSize(size);
+void SettingsManager::setMainWindowGeometry(const QRect& geometry) {
+    m_configManager->setMainWindowGeometry(geometry);
 }
 
 bool SettingsManager::mainWindowVisible() const {

@@ -97,8 +97,7 @@ bool ConfigManager::loadConfig() {
 
     snapshot.mainWindowVisible = s.value(u"window/visible"_sv, true).toBool();
     snapshot.mainWindowMaximized = s.value(u"window/maximized"_sv, false).toBool();
-    snapshot.mainWindowPos = s.value(u"window/pos"_sv).toPoint();
-    snapshot.mainWindowSize = s.value(u"window/size"_sv, QSize(600, 450)).toSize();
+    snapshot.mainWindowGeometry = s.value(u"window/geometry"_sv).toRect();
 
     snapshot.lastUpdateCheckTimestamp = s.value(u"update/lastCheckTimestamp"_sv, 0).toLongLong();
     snapshot.skippedVersion = s.value(u"update/skippedVersion"_sv).toString();
@@ -157,8 +156,15 @@ bool ConfigManager::saveConfig() {
 
     s.setValue(u"window/visible"_sv, snapshot.mainWindowVisible);
     s.setValue(u"window/maximized"_sv, snapshot.mainWindowMaximized);
-    s.setValue(u"window/pos"_sv, snapshot.mainWindowPos);
-    s.setValue(u"window/size"_sv, snapshot.mainWindowSize);
+    // A window that was never placed has no key at all; writing a default rect would make the next
+    // launch believe the user parked it there. The separate pos/size keys are no longer read.
+    if (snapshot.mainWindowGeometry.isValid()) {
+        s.setValue(u"window/geometry"_sv, snapshot.mainWindowGeometry);
+    } else {
+        s.remove(u"window/geometry"_sv);
+    }
+    s.remove(u"window/pos"_sv);
+    s.remove(u"window/size"_sv);
 
     s.setValue(u"update/lastCheckTimestamp"_sv, snapshot.lastUpdateCheckTimestamp);
     s.setValue(u"update/skippedVersion"_sv, snapshot.skippedVersion);
@@ -286,24 +292,14 @@ void ConfigManager::setMainWindowMaximized(bool maximized) {
     m_state.mainWindowMaximized = maximized;
 }
 
-QPoint ConfigManager::mainWindowPos() const {
+QRect ConfigManager::mainWindowGeometry() const {
     QMutexLocker locker(&m_mutex);
-    return m_state.mainWindowPos;
+    return m_state.mainWindowGeometry;
 }
 
-void ConfigManager::setMainWindowPos(const QPoint& pos) {
+void ConfigManager::setMainWindowGeometry(const QRect& geometry) {
     QMutexLocker locker(&m_mutex);
-    m_state.mainWindowPos = pos;
-}
-
-QSize ConfigManager::mainWindowSize() const {
-    QMutexLocker locker(&m_mutex);
-    return m_state.mainWindowSize;
-}
-
-void ConfigManager::setMainWindowSize(const QSize& size) {
-    QMutexLocker locker(&m_mutex);
-    m_state.mainWindowSize = size;
+    m_state.mainWindowGeometry = geometry;
 }
 
 Theme ConfigManager::currentTheme() const {

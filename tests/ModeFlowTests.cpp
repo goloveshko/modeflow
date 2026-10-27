@@ -343,10 +343,8 @@ public:
 
     bool mainWindowMaximized() const override { return maximizedMock; }
     void setMainWindowMaximized(bool maximized) override { maximizedMock = maximized; }
-    QPoint mainWindowPos() const override { return posMock; }
-    void setMainWindowPos(const QPoint& pos) override { posMock = pos; }
-    QSize mainWindowSize() const override { return sizeMock; }
-    void setMainWindowSize(const QSize& size) override { sizeMock = size; }
+    QRect mainWindowGeometry() const override { return geometryMock; }
+    void setMainWindowGeometry(const QRect& geometry) override { geometryMock = geometry; }
 
     bool mainWindowVisible() const override { return visibleMock; }
     void setMainWindowVisible(bool visible) override { visibleMock = visible; }
@@ -409,8 +407,7 @@ public:
     int saveCalls = 0;
 
     bool maximizedMock = false;
-    QPoint posMock;
-    QSize sizeMock = QSize(600, 450);
+    QRect geometryMock;
     bool visibleMock = true;
 
     bool askConfirmationMock = true;
@@ -646,6 +643,15 @@ private slots:
     void workspaceConfig_fromJsonReducesAMultiChordImport();
     void configManager_isThreadSafeAndConsistent();
     void configManager_skippedVersion_persistsCorrectly();
+
+    void mainWindowGeometry_keepsAWindowDockedAtTheOrigin();
+    void mainWindowGeometry_honoursANegativeCoordinateMonitor();
+    void mainWindowGeometry_bringsTheWindowBackWhenItsMonitorIsGone();
+    void mainWindowGeometry_staysOnTheMonitorTheWindowHangsFrom();
+    void mainWindowGeometry_fitsTheWindowToASmallerResolution();
+    void mainWindowGeometry_shrinksAWindowLargerThanTheScreen();
+    void mainWindowGeometry_centresAnUnplacedWindowInsideTheTaskbar();
+    void mainWindowGeometry_hasNoScreenToFitInto();
 
     void workspaceService_applyStatusName();
     void workspaceService_noChangeEmitsSuccess();
@@ -2005,6 +2011,116 @@ void ModeFlowTests::appLauncher_scheduledDelayedLaunchIsNotScheduledTwice() {
     QVERIFY(launcher.launchSequence(QStringLiteral("p1"), {otherDelayed}));
     QTest::qWait(1600);
     QCOMPARE(errorSpy.count(), 2);
+}
+
+void ModeFlowTests::mainWindowGeometry_keepsAWindowDockedAtTheOrigin() {
+    using ModeFlow::Gui::MainWindow;
+
+    const QList<QRect> areas{QRect(0, 0, 1920, 1040)};
+    const QSize fallback(650, 550);
+
+    // A window parked in the top-left corner is something the user chose, not a missing setting.
+    QCOMPARE(MainWindow::resolvedWindowGeometry(QRect(0, 0, 650, 550), areas, fallback), QRect(0, 0, 650, 550));
+}
+
+void ModeFlowTests::mainWindowGeometry_honoursANegativeCoordinateMonitor() {
+    using ModeFlow::Gui::MainWindow;
+
+    const QList<QRect> areas{QRect(0, 0, 1920, 1040), QRect(-1920, 0, 1920, 1040)};
+    const QSize fallback(650, 550);
+
+    // A monitor placed to the left of the primary one has negative coordinates; they are still visible.
+    QCOMPARE(MainWindow::resolvedWindowGeometry(QRect(-1300, 200, 650, 550), areas, fallback),
+             QRect(-1300, 200, 650, 550));
+
+    // A window that touches no screen at all lands on the primary one, not on the monitor that is gone.
+    QCOMPARE(MainWindow::resolvedWindowGeometry(QRect(-1300, 2000, 650, 550), areas, fallback),
+             QRect(0, 490, 650, 550));
+}
+
+void ModeFlowTests::mainWindowGeometry_bringsTheWindowBackWhenItsMonitorIsGone() {
+    using ModeFlow::Gui::MainWindow;
+
+    const QList<QRect> areas{QRect(0, 0, 1920, 1040)};
+    const QSize fallback(650, 550);
+    const QRect leftMonitorWasRemoved = QRect(-1300, 200, 650, 550);
+
+    const QRect result = MainWindow::resolvedWindowGeometry(leftMonitorWasRemoved, areas, fallback);
+
+    QCOMPARE(result, QRect(0, 200, 650, 550));
+    QVERIFY(areas.first().contains(result));
+}
+
+void ModeFlowTests::mainWindowGeometry_staysOnTheMonitorTheWindowHangsFrom() {
+    using ModeFlow::Gui::MainWindow;
+
+    const QList<QRect> areas{QRect(0, 0, 1920, 1040), QRect(1920, 0, 1920, 1040)};
+    const QSize fallback(650, 550);
+
+    // The window hung off the bottom of the second monitor; only that much is corrected, the monitor
+    // it belonged to is kept.
+    const QRect result = MainWindow::resolvedWindowGeometry(QRect(2400, 900, 650, 550), areas, fallback);
+
+    QCOMPARE(result, QRect(2400, 490, 650, 550));
+    QVERIFY(areas.at(1).contains(result));
+}
+
+void ModeFlowTests::mainWindowGeometry_fitsTheWindowToASmallerResolution() {
+    using ModeFlow::Gui::MainWindow;
+
+    // 1280x720 with an 80px taskbar: the saved rect was reachable on the old, bigger desktop.
+    const QList<QRect> areas{QRect(0, 0, 1280, 640)};
+    const QSize fallback(650, 550);
+
+    const QRect result = MainWindow::resolvedWindowGeometry(QRect(900, 400, 650, 550), areas, fallback);
+
+    QCOMPARE(result, QRect(630, 90, 650, 550));
+    QVERIFY(areas.first().contains(result));
+}
+
+void ModeFlowTests::mainWindowGeometry_shrinksAWindowLargerThanTheScreen() {
+    using ModeFlow::Gui::MainWindow;
+
+    const QList<QRect> areas{QRect(0, 0, 800, 600)};
+    const QSize fallback(650, 550);
+
+    const QRect result = MainWindow::resolvedWindowGeometry(QRect(-100, -50, 1000, 900), areas, fallback);
+
+    QCOMPARE(result, QRect(0, 0, 800, 600));
+    QVERIFY(areas.first().contains(result));
+}
+
+void ModeFlowTests::mainWindowGeometry_centresAnUnplacedWindowInsideTheTaskbar() {
+    using ModeFlow::Gui::MainWindow;
+
+    const QSize fallback(650, 550);
+
+    // 1920x1080 with an 80px taskbar at the bottom: centre against the usable area, not the full screen.
+    const QList<QRect> bottomTaskbar{QRect(0, 0, 1920, 1040)};
+    QCOMPARE(MainWindow::resolvedWindowGeometry(QRect(), bottomTaskbar, fallback), QRect(635, 245, 650, 550));
+    QVERIFY(bottomTaskbar.first().contains(QRect(635, 245, 650, 550)));
+
+    // A taskbar docked at the top shifts the usable area, and the window has to follow it.
+    const QList<QRect> topTaskbar{QRect(0, 60, 1000, 940)};
+    QCOMPARE(MainWindow::resolvedWindowGeometry(QRect(), topTaskbar, fallback), QRect(175, 255, 650, 550));
+    QVERIFY(topTaskbar.first().contains(QRect(175, 255, 650, 550)));
+
+    // A rect with nothing to show is just as unusable as no saved rect at all, wherever it came from.
+    QCOMPARE(MainWindow::resolvedWindowGeometry(QRect(120, 80, 0, 0), topTaskbar, fallback), QRect(175, 255, 650, 550));
+    // So is one whose corners are the wrong way round, which is what a hand-edited settings value gives.
+    QCOMPARE(MainWindow::resolvedWindowGeometry(QRect(120, 80, -10, -10), topTaskbar, fallback),
+             QRect(175, 255, 650, 550));
+}
+
+void ModeFlowTests::mainWindowGeometry_hasNoScreenToFitInto() {
+    using ModeFlow::Gui::MainWindow;
+
+    const QSize fallback(650, 550);
+    const QList<QRect> noScreens;
+
+    QCOMPARE(MainWindow::resolvedWindowGeometry(QRect(), noScreens, fallback), QRect(0, 0, 650, 550));
+    QCOMPARE(MainWindow::resolvedWindowGeometry(QRect(-1300, 200, 650, 550), noScreens, fallback),
+             QRect(-1300, 200, 650, 550));
 }
 
 void ModeFlowTests::hotkeyManager_resolveInitialProfileId_null() {

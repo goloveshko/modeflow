@@ -5,6 +5,7 @@
 #include <QDialog>
 #include <QLabel>
 #include <QMenu>
+#include <QRect>
 #include <QTimer>
 #include <QToolButton>
 
@@ -41,6 +42,19 @@ public:
     void showToolTipOnMoreButton(const QString& text);
 
     bool toggleVisibility();
+
+    /**
+     * @brief Decides where the main window belongs on this launch.
+     * @param saved the geometry saved by the previous session, invalid when the user never had one.
+     * @param availableAreas the usable area of every screen, primary screen first, excluding taskbars.
+     * @param fallbackSize the size for a window that has never been placed.
+     *
+     * A saved rect that still fits one available area is honoured exactly, including a window docked at
+     * the origin and a monitor whose coordinates are negative. Anything else is moved onto the screen
+     * that can show most of it and shrunk when that area became smaller than the window.
+     */
+    static QRect resolvedWindowGeometry(const QRect& saved, const QList<QRect>& availableAreas,
+                                        const QSize& fallbackSize);
 
 protected:
     void changeEvent(QEvent* event) override;

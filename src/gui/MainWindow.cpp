@@ -2,6 +2,7 @@
 
 #include "ui_MainWindow.h"
 
+#include <QScreen>
 #include <QToolTip>
 
 #include "Constants.h"
@@ -24,6 +25,37 @@ using namespace Qt::StringLiterals;
 namespace {
 int resolvedIconExtent(const QSize& iconSize, int fallback) {
     return iconSize.width() > 0 ? iconSize.width() : fallback;
+}
+
+QRect centerInAvailableArea(const QRect& availableArea, const QSize& size) {
+    const QPoint offset((availableArea.width() - size.width()) / 2, (availableArea.height() - size.height()) / 2);
+    return QRect(availableArea.topLeft() + offset, size);
+}
+
+// The screen that can show most of the window, so a window left straddling a monitor edge comes back to
+// the monitor it belonged to. A window that touches nothing lands on the primary screen.
+const QRect& bestAvailableArea(const QRect& requested, const QList<QRect>& availableAreas) {
+    const QRect* best = &availableAreas.first();
+    qint64 bestOverlap = -1;
+    for (const QRect& area : availableAreas) {
+        const QRect overlap = area.intersected(requested);
+        const qint64 pixels = qint64(overlap.width()) * overlap.height();
+        if (pixels > bestOverlap) {
+            bestOverlap = pixels;
+            best = &area;
+        }
+    }
+    return *best;
+}
+
+QRect fitIntoAvailableArea(const QRect& requested, const QRect& area) {
+    QSize size = requested.size();
+    size.setWidth(qMin(size.width(), area.width()));
+    size.setHeight(qMin(size.height(), area.height()));
+
+    return QRect(QPoint(qBound(area.left(), requested.left(), area.right() - size.width() + 1),
+                        qBound(area.top(), requested.top(), area.bottom() - size.height() + 1)),
+                 size);
 }
 } // namespace
 
@@ -526,51 +558,50 @@ void MainWindow::applyProfileByRow(int row) {
 }
 
 void MainWindow::saveWindowGeometry() {
-    const bool maximized = m_settingsManager->mainWindowMaximized();
-    if (!maximized) {
-        m_settingsManager->setMainWindowPos(pos());
-        m_settingsManager->setMainWindowSize(size());
+    if (m_settingsManager->mainWindowMaximized()) {
+        return;
     }
+
+    m_settingsManager->setMainWindowGeometry(QRect(pos(), size()));
 }
 
 void MainWindow::restoreWindowGeometry() {
-    const QPoint savedPos = m_settingsManager->mainWindowPos();
-    const QSize savedSize = m_settingsManager->mainWindowSize();
-
     constexpr int DefaultWidth = 650;
     constexpr int DefaultHeight = 550;
 
-    auto centerOnPrimary = [this]() {
-        if (auto* primary = QGuiApplication::primaryScreen()) {
-            const QRect screenGeom = primary->geometry();
-            const int x = screenGeom.left() + (screenGeom.width() - DefaultWidth) / 2;
-            const int y = screenGeom.top() + (screenGeom.height() - DefaultHeight) / 2;
-            move(x, y);
-            resize(DefaultWidth, DefaultHeight);
-        } else {
-            resize(DefaultWidth, DefaultHeight);
-        }
-    };
-
-    if (!savedPos.isNull() && savedSize.isValid() && savedSize.width() >= DefaultWidth &&
-        savedSize.height() >= DefaultHeight) {
-        bool posIsVisibleOnAnyMonitor = false;
-        for (auto* screen : QGuiApplication::screens()) {
-            if (screen->geometry().contains(savedPos)) {
-                posIsVisibleOnAnyMonitor = true;
-                break;
-            }
-        }
-
-        if (posIsVisibleOnAnyMonitor) {
-            move(savedPos);
-            resize(savedSize);
-        } else {
-            centerOnPrimary();
-        }
-    } else {
-        centerOnPrimary();
+    QList<QRect> availableAreas;
+    QScreen* primary = QGuiApplication::primaryScreen();
+    if (primary) {
+        availableAreas.append(primary->availableGeometry());
     }
+    for (QScreen* screen : QGuiApplication::screens()) {
+        if (screen != primary) {
+            availableAreas.append(screen->availableGeometry());
+        }
+    }
+
+    setGeometry(resolvedWindowGeometry(m_settingsManager->mainWindowGeometry(), availableAreas,
+                                       QSize(DefaultWidth, DefaultHeight)));
+}
+
+QRect MainWindow::resolvedWindowGeometry(const QRect& saved, const QList<QRect>& availableAreas,
+                                         const QSize& fallbackSize) {
+    if (availableAreas.isEmpty()) {
+        // Nothing to fit into: keep the saved rect, or fall back to an unplaced window at the origin.
+        return saved.isValid() ? saved : QRect(QPoint(), fallbackSize);
+    }
+
+    if (!saved.isValid()) {
+        return centerInAvailableArea(availableAreas.first(), fallbackSize);
+    }
+
+    for (const QRect& area : availableAreas) {
+        if (area.contains(saved)) {
+            return saved;
+        }
+    }
+
+    return fitIntoAvailableArea(saved, bestAvailableArea(saved, availableAreas));
 }
 
 } // namespace ModeFlow::Gui

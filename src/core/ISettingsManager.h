@@ -29,10 +29,8 @@ public:
 
     virtual bool mainWindowMaximized() const = 0;
     virtual void setMainWindowMaximized(bool maximized) = 0;
-    virtual QPoint mainWindowPos() const = 0;
-    virtual void setMainWindowPos(const QPoint& pos) = 0;
-    virtual QSize mainWindowSize() const = 0;
-    virtual void setMainWindowSize(const QSize& size) = 0;
+    virtual QRect mainWindowGeometry() const = 0;
+    virtual void setMainWindowGeometry(const QRect& geometry) = 0;
     virtual bool mainWindowVisible() const = 0;
     virtual void setMainWindowVisible(bool visible) = 0;
 

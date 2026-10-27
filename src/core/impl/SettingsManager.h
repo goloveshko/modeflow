@@ -50,10 +50,8 @@ public:
 
     bool mainWindowMaximized() const override;
     void setMainWindowMaximized(bool maximized) override;
-    QPoint mainWindowPos() const override;
-    void setMainWindowPos(const QPoint& pos) override;
-    QSize mainWindowSize() const override;
-    void setMainWindowSize(const QSize& size) override;
+    QRect mainWindowGeometry() const override;
+    void setMainWindowGeometry(const QRect& geometry) override;
     bool mainWindowVisible() const override;
     void setMainWindowVisible(bool visible) override;
 

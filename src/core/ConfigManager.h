@@ -3,6 +3,7 @@
 #include <QMutex>
 #include <QObject>
 #include <QPoint>
+#include <QRect>
 #include <QSize>
 
 #include "Constants.h"
@@ -30,8 +31,9 @@ struct ConfigState {
     bool mainWindowVisible = true;
 
     bool mainWindowMaximized = false;
-    QPoint mainWindowPos;
-    QSize mainWindowSize = QSize(600, 450);
+    // An invalid rect means the user has never had a window to place, which is not the same thing as
+    // a saved window sitting at the origin.
+    QRect mainWindowGeometry;
 
     bool askConfirmation = true;
     qint64 lastUpdateCheckTimestamp = 0;
@@ -88,11 +90,8 @@ public:
     bool isMainWindowMaximized() const;
     void setMainWindowMaximized(bool maximized);
 
-    QPoint mainWindowPos() const;
-    void setMainWindowPos(const QPoint& pos);
-
-    QSize mainWindowSize() const;
-    void setMainWindowSize(const QSize& size);
+    QRect mainWindowGeometry() const;
+    void setMainWindowGeometry(const QRect& geometry);
 
     Theme currentTheme() const;
     void setTheme(Theme theme);
