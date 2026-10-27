@@ -530,6 +530,11 @@ Convenience wrappers:
             $CmakeArgs += "-DCMAKE_PREFIX_PATH=$($QtDir.Replace('\', '/'))"
         }
 
+        # CMake records the language of the "/showIncludes" banner while probing the compiler, and
+        # Ninja only hides the include list while that banner matches. Pin English so a localized
+        # Visual Studio does not bury the log in "Note: including file:" lines after a clean tree.
+        $env:VSLANG = "1033"
+
         & cmake @CmakeArgs
         if ($LASTEXITCODE -ne 0) { Write-Err "CMake configuration failed!"; exit $LASTEXITCODE }
 
