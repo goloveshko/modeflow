@@ -618,6 +618,10 @@
         <translation>Ошибка импорта</translation>
     </message>
     <message>
+        <source>Could not save the imported profiles; the list was left unchanged.</source>
+        <translation>Не удалось сохранить импортированные профили; список остался без изменений.</translation>
+    </message>
+    <message>
         <source>Import</source>
         <translation>Импорт</translation>
     </message>

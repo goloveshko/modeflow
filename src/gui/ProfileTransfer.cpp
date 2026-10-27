@@ -1,5 +1,7 @@
 ﻿#include "ProfileTransfer.h"
 
+#include <QSet>
+
 #include "IDialogManager.h"
 #include "IWorkspaceManager.h"
 #include "ProfileSerializer.h"
@@ -34,30 +36,46 @@ void ProfileTransfer::doImport() {
         return;
     }
 
-    auto existing = m_workspaceManager->configs();
-    int addedCount = 0;
+    const auto existing = m_workspaceManager->configs();
+
+    // The whole file is checked before anything reaches the model, so a repeated id inside the file is
+    // skipped exactly like one that collides with the existing list.
+    QSet<QString> takenIds;
+    for (const auto& cfg : existing) {
+        takenIds.insert(cfg.id);
+    }
+
+    QList<Core::WorkspaceConfig> accepted;
     int skippedCount = 0;
 
     for (const auto& cfg : imported) {
-        bool isDuplicate = false;
-        for (const auto& ex : existing) {
-            if (ex.id == cfg.id) {
-                isDuplicate = true;
-                break;
-            }
-        }
-
-        if (isDuplicate) {
-            skippedCount++;
+        if (takenIds.contains(cfg.id)) {
+            ++skippedCount;
             continue;
         }
 
-        m_workspaceManager->addConfig(cfg);
-        addedCount++;
+        takenIds.insert(cfg.id);
+        accepted.append(cfg);
     }
 
-    if (addedCount > 0) {
-        m_workspaceManager->saveWorkspaces();
+    int addedCount = 0;
+    if (!accepted.isEmpty()) {
+        for (const auto& cfg : accepted) {
+            m_workspaceManager->addConfig(cfg);
+            ++addedCount;
+        }
+
+        if (!m_workspaceManager->saveWorkspaces()) {
+            // A model holding profiles that never reached disk would show them until the next restart.
+            for (int i = 0; i < addedCount; ++i) {
+                m_workspaceManager->removeConfig(m_workspaceManager->configs().size() - 1);
+            }
+
+            m_dialogManager->showWarning(tr("Import Failed"),
+                                         tr("Could not save the imported profiles; the list was left unchanged."));
+            return;
+        }
+
         emit exchangeCompleted();
     }
 

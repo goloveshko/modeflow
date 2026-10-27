@@ -53,6 +53,7 @@
 #include "MainWindow.h"
 #include "ProfileEditor.h"
 #include "ProfileIconMenu.h"
+#include "ProfileTransfer.h"
 #include "SettingsDialog.h"
 #include "SystemUtils.h"
 #include "UpdateService.h"
@@ -593,6 +594,8 @@ private slots:
     void profileEditor_keepsBindingOfADeviceThatIsNotDetected();
     void profileEditor_renamesAProfileWithAManualIcon();
     void profileEditor_followsTheSuggestedIconWhileItIsAutomatic();
+    void profileImport_skipsDuplicatesInsideTheFile();
+    void profileImport_leavesTheModelUnchangedWhenSavingFails();
     void updateService_versionComparison();
     void comInitGuard_initializesComOnWorkerThread();
     void logManager_togglingWhileWorkersEmitKeepsLogFileConsistent();
@@ -1929,6 +1932,87 @@ void ModeFlowTests::profileEditor_followsTheSuggestedIconWhileItIsAutomatic() {
     // Nothing was picked by hand, so the icon keeps following the name and the edit is still saved.
     QCOMPARE(changedSpy.count(), 1);
     QCOMPARE(form.editor.currentProfileIconSymbol(), QStringLiteral("gamepad"));
+}
+
+namespace {
+// One profile file read verbatim by the import path: a new id, the same id repeated inside the file,
+// another new id and one that clashes with the profile the fake list already holds.
+QString makeImportFile(const QString& tag) {
+    const QString path = QDir::tempPath() + QStringLiteral("/modeflow-import-%1.json").arg(tag);
+    QFile::remove(path);
+
+    QFile file(path);
+    if (!file.open(QIODevice::WriteOnly | QIODevice::Text)) {
+        return QString();
+    }
+
+    file.write(R"({
+    "app": "ModeFlow",
+    "version": 1,
+    "profiles": [
+        { "id": "new-a", "name": "A" },
+        { "id": "new-a", "name": "A repeated inside the file" },
+        { "id": "new-b", "name": "B" },
+        { "id": "profile-1", "name": "Clashes with the existing list" }
+    ]
+})");
+    file.close();
+    return path;
+}
+} // namespace
+
+void ModeFlowTests::profileImport_skipsDuplicatesInsideTheFile() {
+    using ModeFlow::Gui::ProfileTransfer;
+
+    FakeWorkspaceManager workspaceManager;
+    FakeDialogManager dialogManager;
+
+    const QString path = makeImportFile(QStringLiteral("duplicates"));
+    QVERIFY(!path.isEmpty());
+    QScopeGuard removeFile([&path] { QFile::remove(path); });
+
+    dialogManager.mockOpenPath = path;
+    ProfileTransfer transfer(&workspaceManager, &dialogManager);
+
+    QSignalSpy completedSpy(&transfer, &ProfileTransfer::exchangeCompleted);
+    transfer.doImport();
+
+    // The whole file is checked before the model is touched, so the repeated id inside it is skipped
+    // just like the one that clashes with the list.
+    QCOMPARE(completedSpy.count(), 1);
+    QCOMPARE(workspaceManager.saveCalls, 1);
+
+    QStringList ids;
+    for (const auto& cfg : workspaceManager.configs()) {
+        ids << cfg.id;
+    }
+    QCOMPARE(ids, (QStringList{QStringLiteral("profile-1"), QStringLiteral("new-a"), QStringLiteral("new-b")}));
+    QVERIFY(dialogManager.lastWarningText.contains(QStringLiteral("2 duplicate(s) were skipped")));
+}
+
+void ModeFlowTests::profileImport_leavesTheModelUnchangedWhenSavingFails() {
+    using ModeFlow::Gui::ProfileTransfer;
+
+    FakeWorkspaceManager workspaceManager;
+    workspaceManager.saveShouldSucceed = false;
+    FakeDialogManager dialogManager;
+
+    const QString path = makeImportFile(QStringLiteral("save-fails"));
+    QVERIFY(!path.isEmpty());
+    QScopeGuard removeFile([&path] { QFile::remove(path); });
+
+    dialogManager.mockOpenPath = path;
+    ProfileTransfer transfer(&workspaceManager, &dialogManager);
+
+    QSignalSpy completedSpy(&transfer, &ProfileTransfer::exchangeCompleted);
+    const int rowsBefore = workspaceManager.configs().size();
+
+    transfer.doImport();
+
+    // An import that never reached disk must not stay visible in the list or be announced as success.
+    QCOMPARE(completedSpy.count(), 0);
+    QCOMPARE(workspaceManager.configs().size(), rowsBefore);
+    QCOMPARE(dialogManager.lastWarningTitle, QStringLiteral("Import Failed"));
 }
 
 QTEST_MAIN(ModeFlowTests)
