@@ -6,7 +6,9 @@
 #include <QDir>
 #include <QProcess>
 #include <QScrollBar>
+#include <QTextCursor>
 
+#include "Constants.h"
 #include "FontAwesome.h"
 #include "IDialogManager.h"
 #include "ISettingsManager.h"
@@ -21,7 +23,6 @@ using namespace Qt::StringLiterals;
 namespace {
 constexpr int RefreshIntervalMs = 500;
 constexpr int FilterDebounceMs = 150;
-constexpr int MaxLogEntries = 50000;
 } // namespace
 
 LogViewerDialog::LogViewerDialog(Core::IDialogManager* dialogManager, Core::ISettingsManager* settingsManager,
@@ -43,7 +44,7 @@ void LogViewerDialog::init() {
     monoFont.setStyleHint(QFont::Monospace);
     monoFont.setPointSize(10);
     ui->textLog->setFont(monoFont);
-    ui->textLog->setMaximumBlockCount(MaxLogEntries);
+    ui->textLog->setMaximumBlockCount(Utils::MaxViewerEntries);
 
     m_highlighter = new LogHighlighter(ui->textLog->document());
 
@@ -219,6 +220,30 @@ LogViewerDialog::LogEntry LogViewerDialog::parseLine(const QString& line) {
     return entry;
 }
 
+qint64 LogViewerDialog::tailStartOffset(qint64 fileSize) {
+    if (fileSize <= Utils::MaxViewerTailBytes)
+        return 0;
+
+    return fileSize - Utils::MaxViewerTailBytes;
+}
+
+qsizetype LogViewerDialog::entriesToDrop(qsizetype total) {
+    if (total <= Utils::MaxViewerEntries)
+        return 0;
+
+    return total - Utils::MaxViewerEntries;
+}
+
+LogViewerDialog::LoadAction LogViewerDialog::loadAction(qint64 newSize, qint64 consumedBytes) {
+    if (newSize < consumedBytes)
+        return LoadAction::Reload;
+
+    if (newSize == consumedBytes)
+        return LoadAction::Nothing;
+
+    return LoadAction::Append;
+}
+
 void LogViewerDialog::loadLogFile() {
     m_allEntries.clear();
     m_filteredIndices.clear();
@@ -230,7 +255,16 @@ void LogViewerDialog::loadLogFile() {
     }
 
     m_fileSize = file.size();
+    const qint64 startOffset = tailStartOffset(m_fileSize);
+    if (startOffset > 0) {
+        // A long session is read from its tail, which bounds the parse and the strings it produces.
+        // The offset lands inside a line, so that fragment is dropped instead of shown as an entry.
+        file.seek(startOffset);
+    }
+
     QTextStream stream(&file);
+    if (startOffset > 0)
+        stream.readLine();
 
     QSet<QString> categories;
     while (!stream.atEnd()) {
@@ -244,6 +278,9 @@ void LogViewerDialog::loadLogFile() {
         m_allEntries.append(entry);
     }
 
+    if (const qsizetype dropped = entriesToDrop(m_allEntries.size()); dropped > 0)
+        m_allEntries.remove(0, dropped);
+
     refreshCategories(categories);
     onApplyFilters();
     updateStatusBar();
@@ -255,20 +292,24 @@ void LogViewerDialog::incrementalLoad() {
         return;
 
     const qint64 newSize = file.size();
-    if (newSize == m_fileSize)
+    if (const LoadAction action = loadAction(newSize, m_fileSize); action != LoadAction::Append) {
+        if (action == LoadAction::Reload) {
+            // The file shrank: rotation or a cleared log. Every buffered line comes from a generation
+            // that is no longer shown, so the only correct move is to read the current tail again.
+            loadLogFile();
+        }
         return;
-
-    if (newSize < m_fileSize) {
-        m_fileSize = 0;
-        m_allEntries.clear();
     }
 
     file.seek(m_fileSize);
     m_fileSize = newSize;
 
-    QTextStream stream(&file);
+    const bool plainView = ui->editFilter->text().isEmpty() && ui->comboLevel->currentData().toInt() == -1 &&
+                           ui->comboCategory->currentData().toString().isEmpty();
 
+    QTextStream stream(&file);
     QSet<QString> newCategories;
+    QString appendedText;
     while (!stream.atEnd()) {
         QString line = stream.readLine();
         if (line.isEmpty())
@@ -278,7 +319,17 @@ void LogViewerDialog::incrementalLoad() {
         if (!entry.category.isEmpty())
             newCategories.insert(entry.category);
         m_allEntries.append(entry);
+
+        // Captured while reading: the buffer may shed its oldest lines below, and the indices of the
+        // new entries would move with them.
+        if (plainView) {
+            appendedText += line;
+            appendedText += u'\n';
+        }
     }
+
+    if (const qsizetype dropped = entriesToDrop(m_allEntries.size()); dropped > 0)
+        m_allEntries.remove(0, dropped);
 
     if (!newCategories.isEmpty()) {
         QSet<QString> existingCategories;
@@ -292,7 +343,21 @@ void LogViewerDialog::incrementalLoad() {
         refreshCategories(existingCategories);
     }
 
-    onApplyFilters();
+    if (!plainView) {
+        onApplyFilters();
+        return;
+    }
+
+    // Without filters the document simply mirrors the buffer, so the new lines are appended instead
+    // of re-rendering everything the viewer holds. QPlainTextEdit drops leading blocks at the same
+    // cap the buffer uses, which keeps the two aligned.
+    m_filteredIndices.clear();
+    m_filteredIndices.reserve(m_allEntries.size());
+    for (qsizetype i = 0; i < m_allEntries.size(); ++i) {
+        m_filteredIndices.append(static_cast<int>(i));
+    }
+
+    appendToDisplay(appendedText);
     updateStatusBar();
 }
 
@@ -354,6 +419,20 @@ void LogViewerDialog::rebuildDisplay() {
 
     ui->textLog->setPlainText(plainText);
 
+    m_isRefreshing = false;
+
+    if (m_followMode)
+        scrollToBottom();
+}
+
+void LogViewerDialog::appendToDisplay(const QString& text) {
+    if (text.isEmpty())
+        return;
+
+    m_isRefreshing = true;
+    QTextCursor cursor(ui->textLog->document());
+    cursor.movePosition(QTextCursor::End);
+    cursor.insertText(text);
     m_isRefreshing = false;
 
     if (m_followMode)

@@ -59,6 +59,7 @@
 #include "IWorkspaceManager.h"
 #include "LocalizationManager.h"
 #include "LogManager.h"
+#include "LogViewerDialog.h"
 #include "Logging.h"
 #include "MainWindow.h"
 #include "ProfileEditor.h"
@@ -708,6 +709,8 @@ private slots:
     void singleInstanceGuard_dropsClientsThatDoNotCompleteTheHandshake();
     void comInitGuard_initializesComOnWorkerThread();
     void logManager_rollAsideKeepsOnePreviousGeneration();
+    void logViewerDialog_readsOnlyABoundedTailAndBuffer();
+    void logViewerDialog_treatsAShrinkingLogFileAsARotation();
     void logManager_togglingWhileWorkersEmitKeepsLogFileConsistent();
 };
 
@@ -2340,6 +2343,49 @@ void ModeFlowTests::logManager_rollAsideKeepsOnePreviousGeneration() {
     // A missing active log is not a roll: the previous generation must survive.
     QVERIFY(!LogManager::rollAside(logPath));
     QCOMPARE(read(rolledPath), QStringLiteral("second generation"));
+}
+
+void ModeFlowTests::logViewerDialog_readsOnlyABoundedTailAndBuffer() {
+    using ModeFlow::Gui::LogViewerDialog;
+    using namespace ModeFlow::Utils;
+
+    // Up to the read budget the file is taken whole, so a short log still shows from its start.
+    QCOMPARE(LogViewerDialog::tailStartOffset(qint64(0)), qint64(0));
+    QCOMPARE(LogViewerDialog::tailStartOffset(qint64(MaxViewerTailBytes)), qint64(0));
+
+    // Past it the read starts at the last budget of bytes: opening a log costs the same however
+    // long the session grew.
+    QCOMPARE(LogViewerDialog::tailStartOffset(qint64(MaxViewerTailBytes) + 4096), qint64(4096));
+    QCOMPARE(LogViewerDialog::tailStartOffset(qint64(MaxLogFileSizeBytes)),
+             qint64(qint64(MaxLogFileSizeBytes) - qint64(MaxViewerTailBytes)));
+
+    // The line buffer is capped the same way and gives up only what overflows it.
+    QCOMPARE(LogViewerDialog::entriesToDrop(qsizetype(0)), qsizetype(0));
+    QCOMPARE(LogViewerDialog::entriesToDrop(qsizetype(MaxViewerEntries - 1)), qsizetype(0));
+    QCOMPARE(LogViewerDialog::entriesToDrop(qsizetype(MaxViewerEntries)), qsizetype(0));
+    QCOMPARE(LogViewerDialog::entriesToDrop(qsizetype(MaxViewerEntries + 1)), qsizetype(1));
+    QCOMPARE(LogViewerDialog::entriesToDrop(qsizetype(MaxViewerEntries + 250)), qsizetype(250));
+
+    QStringList lines;
+    for (int i = 0; i < MaxViewerEntries + 250; ++i)
+        lines << QString::number(i);
+    lines.remove(0, static_cast<int>(LogViewerDialog::entriesToDrop(lines.size())));
+    QCOMPARE(lines.size(), qsizetype(MaxViewerEntries));
+    QCOMPARE(lines.first(), QStringLiteral("250"));
+    QCOMPARE(lines.last(), QString::number(MaxViewerEntries + 249));
+}
+
+void ModeFlowTests::logViewerDialog_treatsAShrinkingLogFileAsARotation() {
+    using ModeFlow::Gui::LogViewerDialog;
+    using Action = ModeFlow::Gui::LogViewerDialog::LoadAction;
+
+    QVERIFY(LogViewerDialog::loadAction(qint64(1000), qint64(1000)) == Action::Nothing);
+    QVERIFY(LogViewerDialog::loadAction(qint64(1500), qint64(1000)) == Action::Append);
+
+    // Rotation leaves a fresh, small file behind. Appending from the consumed offset would read
+    // nothing at all and keep the retired generation on screen.
+    QVERIFY(LogViewerDialog::loadAction(qint64(200), qint64(1000)) == Action::Reload);
+    QVERIFY(LogViewerDialog::loadAction(qint64(0), qint64(1000)) == Action::Reload);
 }
 
 void ModeFlowTests::logManager_togglingWhileWorkersEmitKeepsLogFileConsistent() {

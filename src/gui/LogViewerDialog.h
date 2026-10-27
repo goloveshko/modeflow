@@ -25,6 +25,31 @@ public:
                              Core::IStyleManager* styleManager, QWidget* parent = nullptr);
     ~LogViewerDialog() override;
 
+    /// What the next viewer pass has to do with the log file.
+    enum class LoadAction { Nothing, Append, Reload };
+
+    /**
+     * @brief Offset where a bounded read of the log tail starts.
+     * @param fileSize Size of the log file in bytes.
+     * @return 0 when the file fits the read budget, otherwise its last budget of bytes.
+     */
+    static qint64 tailStartOffset(qint64 fileSize);
+
+    /**
+     * @brief How many of the oldest lines the display buffer gives up after an append.
+     * @param total Number of entries held once the newest lines were added.
+     * @return Entries to remove from the front, 0 while the buffer is under its cap.
+     */
+    static qsizetype entriesToDrop(qsizetype total);
+
+    /**
+     * @brief Plans the next pass against the size the viewer already read.
+     * @param newSize Size of the log file now.
+     * @param consumedBytes Size reached by the previous pass.
+     * @return Reload when the file shrank, which is how rotation looks from the viewer.
+     */
+    static LoadAction loadAction(qint64 newSize, qint64 consumedBytes);
+
 protected:
     void showEvent(QShowEvent* event) override;
     void changeEvent(QEvent* event) override;
@@ -45,6 +70,7 @@ private:
     void loadLogFile();
     void incrementalLoad();
     void rebuildDisplay();
+    void appendToDisplay(const QString& text);
     void updateStatusBar();
     void scrollToBottom();
     void refreshCategories(const QSet<QString>& categories);

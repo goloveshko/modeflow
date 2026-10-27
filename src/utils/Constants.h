@@ -63,6 +63,12 @@ constexpr int ProfileAutosaveDebounceMs = 350;
 /** Maximum log file size before rotation (bytes) — 5 MB */
 constexpr int MaxLogFileSizeBytes = 5 * 1024 * 1024;
 
+/** Bytes of the log tail the viewer reads at once — 1 MB */
+constexpr int MaxViewerTailBytes = 1 * 1024 * 1024;
+
+/** Log lines the viewer keeps in memory and renders */
+constexpr int MaxViewerEntries = 10000;
+
 /** Maximum application launch delay in profile (seconds) — 5 minutes */
 constexpr int MaxAppLaunchDelaySeconds = 300;
 
