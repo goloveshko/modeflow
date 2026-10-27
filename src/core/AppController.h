@@ -32,6 +32,7 @@ public:
 private:
     void finalizeInitialization();
     void setupAutoUpdateChecking();
+    void applyAutoUpdateSetting();
 
     void applyStartupConfig();
     void ensureMainWindow();

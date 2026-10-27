@@ -105,7 +105,7 @@ void AppController::finalizeInitialization() {
 }
 
 void AppController::setupAutoUpdateChecking() {
-    if (!m_services.configManager->autoUpdateEnabled() || !m_services.updateService) {
+    if (!m_services.updateService) {
         return;
     }
 
@@ -124,12 +124,9 @@ void AppController::setupAutoUpdateChecking() {
         }
     });
 
-    if (m_services.updateService->isUpdateAvailable()) {
+    if (m_services.configManager->autoUpdateEnabled() && m_services.updateService->isUpdateAvailable()) {
         m_pendingUpdateVersion = m_services.updateService->latestVersion();
     }
-
-    // Pass false to honor 24-hour cache interval on application startup
-    m_services.updateService->checkForUpdates(false);
 
     m_updateTimer.setInterval(Utils::UpdateCheckIntervalMs);
     m_updateTimer.setSingleShot(false);
@@ -140,6 +137,25 @@ void AppController::setupAutoUpdateChecking() {
         }
     });
 
+    applyAutoUpdateSetting();
+}
+
+void AppController::applyAutoUpdateSetting() {
+    if (!m_services.updateService || !m_services.configManager) {
+        return;
+    }
+
+    if (!m_services.configManager->autoUpdateEnabled()) {
+        m_updateTimer.stop();
+        return;
+    }
+
+    if (m_updateTimer.isActive()) {
+        return;
+    }
+
+    // Pass false to honor the 24-hour cache interval, so re-enabling never checks twice a day.
+    m_services.updateService->checkForUpdates(false);
     m_updateTimer.start();
 }
 
@@ -170,6 +186,7 @@ void AppController::raiseMainWindow() {
 void AppController::handleSettingsChanges(const QString& oldLang, Core::Theme oldTheme) {
     m_services.workspaceService->setAudioConfirmation(m_services.configManager->audioConfirmation());
     m_services.hotkeyManager->setNextProfileHotkey(m_services.configManager->nextProfileHotkey());
+    applyAutoUpdateSetting();
 
     if (m_services.configManager->language() != oldLang) {
         m_services.locManager->switchLanguage(m_services.configManager->language());
