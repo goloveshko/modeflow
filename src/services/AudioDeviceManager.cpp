@@ -155,7 +155,7 @@ void AudioDeviceManager::onSetDefaultOutputDevice(const QString& id) {
 
     QThreadPool::globalInstance()->start([this, id]() {
 #ifdef Q_OS_WIN
-        ModeFlow::Utils::ComInitGuard comGuard;
+        ModeFlow::Utils::ComInitGuard comGuard(ModeFlow::Utils::ComInitGuard::Apartment::MultiThreaded);
         if (!comGuard.isOk()) {
             qCWarning(lcService) << "Failed to initialize COM on background thread for output device switch";
             return;
@@ -189,7 +189,7 @@ void AudioDeviceManager::onSetDefaultInputDevice(const QString& id) {
 
     QThreadPool::globalInstance()->start([this, id]() {
 #ifdef Q_OS_WIN
-        ModeFlow::Utils::ComInitGuard comGuard;
+        ModeFlow::Utils::ComInitGuard comGuard(ModeFlow::Utils::ComInitGuard::Apartment::MultiThreaded);
         if (!comGuard.isOk()) {
             qCWarning(lcService) << "Failed to initialize COM on background thread for input device switch";
             return;
@@ -223,7 +223,7 @@ void AudioDeviceManager::setDefaultCommunicationOutputDevice(const QString& id) 
 
     QThreadPool::globalInstance()->start([this, id]() {
 #ifdef Q_OS_WIN
-        ModeFlow::Utils::ComInitGuard comGuard;
+        ModeFlow::Utils::ComInitGuard comGuard(ModeFlow::Utils::ComInitGuard::Apartment::MultiThreaded);
         if (!comGuard.isOk()) {
             return;
         }

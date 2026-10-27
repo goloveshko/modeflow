@@ -3,8 +3,15 @@
 #include <QMessageBox>
 #include <QSignalSpy>
 #include <QSpinBox>
+#include <QThread>
 #include <QtConcurrent>
 #include <QtTest>
+
+#ifdef Q_OS_WIN
+// objidl.h carries the apartment enums used to probe COM state; objbase.h alone does not pull it in.
+#include <objbase.h>
+#include <objidl.h>
+#endif
 
 // Explicitly include required Qt and core types
 #include <optional>
@@ -19,6 +26,7 @@
 #include "AudioDeviceManager.h"
 #include "AutostartManager.h"
 #include "CliParser.h"
+#include "ComInitGuard.h"
 #include "CommandLineBuilder.h"
 #include "ConfigManager.h"
 #include "ConfigTypes.h"
@@ -538,6 +546,7 @@ private slots:
 
     void settingsDialog_hotkeyConflict_showsWarningViaDialogManager();
     void updateService_versionComparison();
+    void comInitGuard_initializesComOnWorkerThread();
 };
 
 void ModeFlowTests::initTestCase() {
@@ -1217,6 +1226,44 @@ void ModeFlowTests::updateService_versionComparison() {
     QVERIFY(!UpdateService::isNewerVersion(QStringLiteral("v1.0.0"), QStringLiteral("1.0.0")));
     QVERIFY(!UpdateService::isNewerVersion(QStringLiteral("0.9.0"), QStringLiteral("1.0.0")));
     QVERIFY(!UpdateService::isNewerVersion(QStringLiteral("0.9.9"), QStringLiteral("1.0.0")));
+}
+
+void ModeFlowTests::comInitGuard_initializesComOnWorkerThread() {
+#ifdef Q_OS_WIN
+    using ModeFlow::Utils::ComInitGuard;
+
+    bool guardOk = false;
+    HRESULT probeInsideScope = E_UNEXPECTED;
+    HRESULT probeAfterScope = E_UNEXPECTED;
+
+    // A fresh QThread has no COM apartment of its own. Querying the apartment type is not usable
+    // here because COM enters an implicit MTA to answer it, so the state is probed with
+    // CoInitializeEx: S_FALSE means somebody else already initialized the thread.
+    auto* worker = QThread::create([&]() {
+        {
+            ComInitGuard guard(ComInitGuard::Apartment::MultiThreaded);
+            guardOk = guard.isOk();
+            probeInsideScope = CoInitializeEx(nullptr, COINIT_MULTITHREADED);
+            if (SUCCEEDED(probeInsideScope)) {
+                CoUninitialize(); // undo only this probe, never the apartment being tested
+            }
+        }
+
+        probeAfterScope = CoInitializeEx(nullptr, COINIT_MULTITHREADED);
+        if (SUCCEEDED(probeAfterScope)) {
+            CoUninitialize();
+        }
+    });
+    worker->start();
+    worker->wait();
+    delete worker;
+
+    QVERIFY(guardOk);
+    QCOMPARE(probeInsideScope, S_FALSE);
+    QCOMPARE(probeAfterScope, S_OK);
+#else
+    QSKIP("COM initialization is a Windows-only concern");
+#endif
 }
 
 QTEST_MAIN(ModeFlowTests)

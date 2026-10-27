@@ -8,8 +8,14 @@ namespace ModeFlow::Utils {
  */
 class ComInitGuard {
 public:
-    // 2 corresponds to COINIT_APARTMENTTHREADED in Windows API
-    explicit ComInitGuard(unsigned long coInit = 2);
+    // Values mirror COINIT_* from the Windows API so this header can stay platform-free.
+    enum class Apartment : unsigned long {
+        MultiThreaded = 0,
+        ApplicationThreaded = 2
+    };
+
+    // Worker threads without a message pump must not take an application apartment.
+    explicit ComInitGuard(Apartment apartment = Apartment::ApplicationThreaded);
     ~ComInitGuard();
 
     bool isOk() const;
