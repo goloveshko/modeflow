@@ -579,6 +579,10 @@
         <source>— No Action —</source>
         <translation>— Не менять —</translation>
     </message>
+    <message>
+        <source>— Saved device (not detected) —</source>
+        <translation>— Сохранённое устройство (не найдено) —</translation>
+    </message>
 </context>
 <context>
     <name>ModeFlow::Gui::ProfileListView</name>

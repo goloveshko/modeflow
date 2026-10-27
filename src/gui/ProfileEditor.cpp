@@ -156,34 +156,36 @@ void ProfileEditor::populateDeviceCombo(QComboBox* combo, const QList<Core::Devi
     combo->clear();
     combo->addItem(tr("— No Action —"), QString());
 
-    if (devices.isEmpty()) {
-        combo->setCurrentIndex(0);
-        return;
-    }
+    if (!devices.isEmpty()) {
+        combo->insertSeparator(combo->count());
 
-    combo->insertSeparator(combo->count());
+        bool separatorAdded = false;
+        for (const auto& device : devices) {
+            if (!device.isConnected && !separatorAdded) {
+                combo->insertSeparator(combo->count());
+                separatorAdded = true;
+            }
 
-    bool separatorAdded = false;
-    for (const auto& device : devices) {
-        if (!device.isConnected && !separatorAdded) {
-            combo->insertSeparator(combo->count());
-            separatorAdded = true;
-        }
+            combo->addItem(device.name, device.id);
 
-        combo->addItem(device.name, device.id);
-
-        if (!device.isConnected) {
-            const int lastIndex = combo->count() - 1;
-            combo->setItemData(lastIndex, QBrush(Qt::gray), Qt::ForegroundRole);
+            if (!device.isConnected) {
+                const int lastIndex = combo->count() - 1;
+                combo->setItemData(lastIndex, QBrush(Qt::gray), Qt::ForegroundRole);
+            }
         }
     }
 
     const int idx = combo->findData(currentId);
     if (idx != -1) {
         combo->setCurrentIndex(idx);
-    } else {
-        combo->setCurrentIndex(0);
+        return;
     }
+
+    // A profile can point at a device that is not detected right now, so keep it selectable instead of
+    // silently dropping the binding: only an explicit "— No Action —" clears it.
+    combo->insertSeparator(combo->count());
+    combo->addItem(tr("— Saved device (not detected) —"), currentId);
+    combo->setCurrentIndex(combo->count() - 1);
 }
 
 void ProfileEditor::updateProfileIconButton() {

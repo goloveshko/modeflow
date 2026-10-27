@@ -1,6 +1,9 @@
 ﻿#include <QCheckBox>
 #include <QComboBox>
+#include <QGroupBox>
+#include <QLineEdit>
 #include <QMessageBox>
+#include <QPushButton>
 #include <QSignalSpy>
 #include <QSpinBox>
 #include <QThread>
@@ -28,6 +31,7 @@
 #endif
 
 #include "AppLauncher.h"
+#include "AppListWidget.h"
 #include "AudioDeviceManager.h"
 #include "AutostartManager.h"
 #include "CliParser.h"
@@ -46,6 +50,8 @@
 #include "LogManager.h"
 #include "Logging.h"
 #include "MainWindow.h"
+#include "ProfileEditor.h"
+#include "ProfileIconMenu.h"
 #include "SettingsDialog.h"
 #include "SystemUtils.h"
 #include "UpdateService.h"
@@ -583,6 +589,7 @@ private slots:
     void winKeyTranslator_translatesCorrectly();
 
     void settingsDialog_hotkeyConflict_showsWarningViaDialogManager();
+    void profileEditor_keepsBindingOfADeviceThatIsNotDetected();
     void updateService_versionComparison();
     void comInitGuard_initializesComOnWorkerThread();
     void logManager_togglingWhileWorkersEmitKeepsLogFileConsistent();
@@ -1809,6 +1816,61 @@ void ModeFlowTests::logManager_togglingWhileWorkersEmitKeepsLogFileConsistent() 
     qCDebug(lcUtil) << disabledProbe;
     QVERIFY2(!bytesSince(finalSize).contains(disabledProbe.toUtf8()),
              "A message was stored after logging was switched off");
+}
+
+void ModeFlowTests::profileEditor_keepsBindingOfADeviceThatIsNotDetected() {
+    using ModeFlow::Core::WorkspaceConfig;
+    using ModeFlow::Gui::AppListWidget;
+    using ModeFlow::Gui::HotkeyEdit;
+    using ModeFlow::Gui::ProfileEditor;
+    using ModeFlow::Gui::ProfileEditorWidgets;
+    using ModeFlow::Gui::ProfileIconMenu;
+
+    FakeWorkspaceManager workspaceManager;
+    // The TV the profile was built for is switched off, and no audio output is reported at all.
+    workspaceManager.m_displays = {{QStringLiteral("display-1"), QStringLiteral("Main display"), true, true}};
+    workspaceManager.m_audioOutputs = {};
+
+    QLineEdit editName;
+    HotkeyEdit keyEditSpecific;
+    QCheckBox checkSkipInCycle;
+    QComboBox comboDisplay;
+    QComboBox comboAudio;
+    AppListWidget listApps;
+    QPushButton btnCapture;
+    QGroupBox groupGeneral;
+    QGroupBox groupHardware;
+    QGroupBox groupAuto;
+    ProfileIconMenu iconMenu;
+
+    const ProfileEditorWidgets widgets{&editName, &keyEditSpecific, &checkSkipInCycle, &comboDisplay,  &comboAudio,
+                                       &listApps, &btnCapture,      &groupGeneral,     &groupHardware, &groupAuto};
+
+    ProfileEditor editor(widgets, &workspaceManager, nullptr, &iconMenu);
+
+    WorkspaceConfig profile;
+    profile.id = QStringLiteral("profile-1");
+    profile.name = QStringLiteral("Docking station");
+    profile.displayId = QStringLiteral("display-tv");
+    profile.audioId = QStringLiteral("audio-tv");
+
+    editor.loadProfile(profile);
+    QCOMPARE(comboDisplay.currentData().toString(), profile.displayId);
+    QCOMPARE(comboAudio.currentData().toString(), profile.audioId);
+
+    // Editing anything else must not rewrite a binding that only waits for the device to come back.
+    editName.setText(QStringLiteral("Docking station 2"));
+    WorkspaceConfig saved;
+    editor.saveProfile(saved);
+    QCOMPARE(saved.name, QStringLiteral("Docking station 2"));
+    QCOMPARE(saved.displayId, profile.displayId);
+    QCOMPARE(saved.audioId, profile.audioId);
+
+    // Clearing a binding stays an explicit choice of the user.
+    comboDisplay.setCurrentIndex(0);
+    editor.saveProfile(saved);
+    QVERIFY(saved.displayId.isEmpty());
+    QCOMPARE(saved.audioId, profile.audioId);
 }
 
 QTEST_MAIN(ModeFlowTests)
