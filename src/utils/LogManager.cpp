@@ -77,7 +77,11 @@ QString LogManager::logFilePath() {
 }
 
 void LogManager::setup(bool enabled) {
-    s_enabled = enabled;
+    {
+        QMutexLocker locker(&s_mutex);
+        s_enabled = enabled;
+    }
+
     if (!enabled) {
         QMutexLocker locker(&s_mutex);
         if (s_logFile.isOpen()) {
@@ -88,22 +92,33 @@ void LogManager::setup(bool enabled) {
 
     const QString logPath = logFilePath();
 
-    QMutexLocker locker(&s_mutex);
+    bool alreadyLoggingToFile = false;
+    bool openFailed = false;
+    {
+        QMutexLocker locker(&s_mutex);
 
-    // Rotation (if > 5MB)
-    if (QFile(logPath).size() > MaxLogFileSizeBytes) {
-        QFile::remove(logPath);
-    }
-
-    if (s_logFile.isOpen()) {
-        if (s_logFile.fileName() == logPath) {
-            return;
+        // Rotation (if > 5MB)
+        if (QFile(logPath).size() > MaxLogFileSizeBytes) {
+            QFile::remove(logPath);
         }
-        s_logFile.close();
+
+        if (s_logFile.isOpen()) {
+            if (s_logFile.fileName() == logPath) {
+                alreadyLoggingToFile = true;
+            } else {
+                s_logFile.close();
+            }
+        }
+
+        if (!alreadyLoggingToFile) {
+            s_logFile.setFileName(logPath);
+            openFailed = !s_logFile.open(QIODevice::WriteOnly | QIODevice::Append | QIODevice::Text);
+        }
     }
 
-    s_logFile.setFileName(logPath);
-    if (!s_logFile.open(QIODevice::WriteOnly | QIODevice::Append | QIODevice::Text)) {
+    // The message handler locks the same mutex and installing it flushes Qt's buffered messages
+    // through it, so both must happen only after this thread has released the lock.
+    if (openFailed) {
         qCWarning(lcUtil) << "Failed to open log file:" << logPath;
     }
 
@@ -111,6 +126,9 @@ void LogManager::setup(bool enabled) {
 }
 
 void LogManager::messageHandler(QtMsgType type, const QMessageLogContext& context, const QString& msg) {
+    // Enabled state and the log file belong to one snapshot: worker threads keep emitting while
+    // the GUI toggles logging, so reading either of them outside the mutex is a data race.
+    QMutexLocker locker(&s_mutex);
     if (!s_enabled || !s_logFile.isOpen())
         return;
 
@@ -142,12 +160,9 @@ void LogManager::messageHandler(QtMsgType type, const QMessageLogContext& contex
 
     OutputDebugStringW(reinterpret_cast<const wchar_t*>(formattedMsg.utf16()));
 
-    QMutexLocker locker(&s_mutex);
-    if (s_logFile.isOpen()) {
-        QTextStream out(&s_logFile);
-        out << formattedMsg;
-        out.flush();
-    }
+    QTextStream out(&s_logFile);
+    out << formattedMsg;
+    out.flush();
 }
 
 } // namespace ModeFlow::Utils

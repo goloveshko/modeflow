@@ -20,7 +20,10 @@
 #include <QFileInfo>
 #include <QPair>
 #include <QPoint>
+#include <QScopeGuard>
 #include <QSize>
+#include <QTextStream>
+#include <atomic>
 
 #include "AppLauncher.h"
 #include "AudioDeviceManager.h"
@@ -38,6 +41,8 @@
 #include "IStyleManager.h"
 #include "IWorkspaceManager.h"
 #include "LocalizationManager.h"
+#include "LogManager.h"
+#include "Logging.h"
 #include "MainWindow.h"
 #include "SettingsDialog.h"
 #include "UpdateService.h"
@@ -547,6 +552,7 @@ private slots:
     void settingsDialog_hotkeyConflict_showsWarningViaDialogManager();
     void updateService_versionComparison();
     void comInitGuard_initializesComOnWorkerThread();
+    void logManager_togglingWhileWorkersEmitKeepsLogFileConsistent();
 };
 
 void ModeFlowTests::initTestCase() {
@@ -1264,6 +1270,116 @@ void ModeFlowTests::comInitGuard_initializesComOnWorkerThread() {
 #else
     QSKIP("COM initialization is a Windows-only concern");
 #endif
+}
+
+void ModeFlowTests::logManager_togglingWhileWorkersEmitKeepsLogFileConsistent() {
+    using ModeFlow::Utils::LogManager;
+
+    // LogManager replaces the global message handler, so QTest's own handler has to be handed back
+    // or the remaining tests lose their reporting.
+    const QtMessageHandler previousHandler = qInstallMessageHandler(nullptr);
+    QScopeGuard restoreHandler([previousHandler] { qInstallMessageHandler(previousHandler); });
+
+    const QString logPath = LogManager::logFilePath();
+    LogManager::setup(false);
+    // The file can already hold lines from real runs of this build, so only look past the size it
+    // has right now.
+    const qint64 baseline = QFileInfo(logPath).size();
+
+    const auto bytesSince = [&logPath](qint64 offset) {
+        QFile file(logPath);
+        if (!file.open(QIODevice::ReadOnly) || !file.seek(offset)) {
+            return QByteArray();
+        }
+        const QByteArray data = file.readAll();
+        file.close();
+        return data;
+    };
+
+    const auto malformedLines = [](const QByteArray& content) {
+        QStringList malformed;
+        const QStringList lines = QString::fromUtf8(content).split(QLatin1Char('\n'), Qt::SkipEmptyParts);
+        for (const QString& line : lines) {
+            // A stored message is "[time] [level] [category] [function] text", so exactly three
+            // bracket separators. A torn write shows up as a line that lost that shape.
+            if (!line.startsWith(QLatin1Char('[')) || line.count(QStringLiteral("] [")) != 3) {
+                malformed << line;
+            }
+        }
+        return malformed;
+    };
+
+    constexpr int WriterCount = 4;
+    constexpr int MessagesPerWriter = 200;
+    const QString token = QStringLiteral("lograce");
+    const QString disabledProbe = QStringLiteral("lograce-while-disabled");
+
+    const auto emitFromWorkers = [token](int messagesPerWriter) {
+        QList<QThread*> writers;
+        for (int w = 0; w < WriterCount; ++w) {
+            writers.append(QThread::create([w, messagesPerWriter, token] {
+                for (int i = 0; i < messagesPerWriter; ++i) {
+                    qCDebug(lcUtil) << token << w << i;
+                }
+            }));
+        }
+        for (auto* writer : writers) {
+            writer->start();
+        }
+        for (auto* writer : writers) {
+            writer->wait();
+            delete writer;
+        }
+    };
+
+    // Phase 1 leaves logging on while four threads write, so the stored message count is exact and
+    // proves the handler really is the one under test.
+    LogManager::setup(true);
+    emitFromWorkers(MessagesPerWriter);
+    LogManager::setup(false);
+
+    const QByteArray enabledContent = bytesSince(baseline);
+    int storedMessages = 0;
+    const QStringList enabledLines = QString::fromUtf8(enabledContent).split(QLatin1Char('\n'), Qt::SkipEmptyParts);
+    for (const QString& line : enabledLines) {
+        if (line.contains(token)) {
+            ++storedMessages;
+        }
+    }
+
+    const QStringList phaseOneMalformed = malformedLines(enabledContent);
+    QVERIFY2(phaseOneMalformed.isEmpty(), qPrintable(phaseOneMalformed.value(0)));
+    QCOMPARE(storedMessages, WriterCount * MessagesPerWriter);
+
+    // Phase 2 switches the state underneath the same threads, which is what the settings dialog does
+    // to the audio and display workers. Which messages get stored is timing dependent, so only the
+    // invariants are checked: no torn line and no deadlock.
+    std::atomic_bool stopToggling = false;
+    auto* toggler = QThread::create([&stopToggling] {
+        while (!stopToggling.load(std::memory_order_relaxed)) {
+            LogManager::setup(true);
+            LogManager::setup(false);
+        }
+    });
+
+    toggler->start();
+    emitFromWorkers(MessagesPerWriter);
+    stopToggling.store(true, std::memory_order_relaxed);
+    toggler->wait();
+    delete toggler;
+
+    LogManager::setup(false);
+
+    const QByteArray toggledContent = bytesSince(baseline);
+    const QStringList toggledMalformed = malformedLines(toggledContent);
+    QVERIFY2(toggledMalformed.isEmpty(), qPrintable(toggledMalformed.value(0)));
+
+    // Nothing may reach the log once it is switched off, not even a message emitted by a thread that
+    // started while logging was still enabled.
+    const qint64 finalSize = QFileInfo(logPath).size();
+    qCDebug(lcUtil) << disabledProbe;
+    QVERIFY2(!bytesSince(finalSize).contains(disabledProbe.toUtf8()),
+             "A message was stored after logging was switched off");
 }
 
 QTEST_MAIN(ModeFlowTests)
