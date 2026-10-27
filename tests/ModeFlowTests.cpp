@@ -2,6 +2,7 @@
 #include <QComboBox>
 #include <QGroupBox>
 #include <QLineEdit>
+#include <QMap>
 #include <QMessageBox>
 #include <QPushButton>
 #include <QSignalSpy>
@@ -191,8 +192,7 @@ public:
         }
     }
     QString suggestedProfileIconSymbol(const QString& profileName) const override {
-        Q_UNUSED(profileName);
-        return QStringLiteral("desktop");
+        return m_iconSymbolsByProfileName.value(profileName, QStringLiteral("desktop"));
     }
 
     QList<ModeFlow::Core::DeviceEntry> getAvailableDisplays() const override { return m_displays; }
@@ -201,6 +201,7 @@ public:
     mutable ModeFlow::Core::WorkspaceModel m_model;
     QList<ModeFlow::Core::DeviceEntry> m_displays;
     QList<ModeFlow::Core::DeviceEntry> m_audioOutputs;
+    QMap<QString, QString> m_iconSymbolsByProfileName;
     int saveCalls = 0;
     bool saveShouldSucceed = true;
     int selectedRowValue = 0;
@@ -590,6 +591,8 @@ private slots:
 
     void settingsDialog_hotkeyConflict_showsWarningViaDialogManager();
     void profileEditor_keepsBindingOfADeviceThatIsNotDetected();
+    void profileEditor_renamesAProfileWithAManualIcon();
+    void profileEditor_followsTheSuggestedIconWhileItIsAutomatic();
     void updateService_versionComparison();
     void comInitGuard_initializesComOnWorkerThread();
     void logManager_togglingWhileWorkersEmitKeepsLogFileConsistent();
@@ -1818,35 +1821,39 @@ void ModeFlowTests::logManager_togglingWhileWorkersEmitKeepsLogFileConsistent() 
              "A message was stored after logging was switched off");
 }
 
+namespace {
+// MainWindow builds the details widgets and hands them to the presenter, so a test wires the same set
+// by hand. The editor is declared last because it reads the addresses of the widgets it drives.
+struct ProfileEditorFixture {
+    ProfileEditorFixture(FakeWorkspaceManager& workspaceManager)
+        : editor({&editName, &keyEditSpecific, &checkSkipInCycle, &comboDisplay, &comboAudio, &listApps, &btnCapture,
+                  &groupGeneral, &groupHardware, &groupAuto},
+                 &workspaceManager, nullptr, &iconMenu) {}
+
+    QLineEdit editName;
+    ModeFlow::Gui::HotkeyEdit keyEditSpecific;
+    QCheckBox checkSkipInCycle;
+    QComboBox comboDisplay;
+    QComboBox comboAudio;
+    ModeFlow::Gui::AppListWidget listApps;
+    QPushButton btnCapture;
+    QGroupBox groupGeneral;
+    QGroupBox groupHardware;
+    QGroupBox groupAuto;
+    ModeFlow::Gui::ProfileIconMenu iconMenu;
+    ModeFlow::Gui::ProfileEditor editor;
+};
+} // namespace
+
 void ModeFlowTests::profileEditor_keepsBindingOfADeviceThatIsNotDetected() {
     using ModeFlow::Core::WorkspaceConfig;
-    using ModeFlow::Gui::AppListWidget;
-    using ModeFlow::Gui::HotkeyEdit;
-    using ModeFlow::Gui::ProfileEditor;
-    using ModeFlow::Gui::ProfileEditorWidgets;
-    using ModeFlow::Gui::ProfileIconMenu;
 
     FakeWorkspaceManager workspaceManager;
     // The TV the profile was built for is switched off, and no audio output is reported at all.
     workspaceManager.m_displays = {{QStringLiteral("display-1"), QStringLiteral("Main display"), true, true}};
     workspaceManager.m_audioOutputs = {};
 
-    QLineEdit editName;
-    HotkeyEdit keyEditSpecific;
-    QCheckBox checkSkipInCycle;
-    QComboBox comboDisplay;
-    QComboBox comboAudio;
-    AppListWidget listApps;
-    QPushButton btnCapture;
-    QGroupBox groupGeneral;
-    QGroupBox groupHardware;
-    QGroupBox groupAuto;
-    ProfileIconMenu iconMenu;
-
-    const ProfileEditorWidgets widgets{&editName, &keyEditSpecific, &checkSkipInCycle, &comboDisplay,  &comboAudio,
-                                       &listApps, &btnCapture,      &groupGeneral,     &groupHardware, &groupAuto};
-
-    ProfileEditor editor(widgets, &workspaceManager, nullptr, &iconMenu);
+    ProfileEditorFixture form(workspaceManager);
 
     WorkspaceConfig profile;
     profile.id = QStringLiteral("profile-1");
@@ -1854,23 +1861,74 @@ void ModeFlowTests::profileEditor_keepsBindingOfADeviceThatIsNotDetected() {
     profile.displayId = QStringLiteral("display-tv");
     profile.audioId = QStringLiteral("audio-tv");
 
-    editor.loadProfile(profile);
-    QCOMPARE(comboDisplay.currentData().toString(), profile.displayId);
-    QCOMPARE(comboAudio.currentData().toString(), profile.audioId);
+    form.editor.loadProfile(profile);
+    QCOMPARE(form.comboDisplay.currentData().toString(), profile.displayId);
+    QCOMPARE(form.comboAudio.currentData().toString(), profile.audioId);
 
     // Editing anything else must not rewrite a binding that only waits for the device to come back.
-    editName.setText(QStringLiteral("Docking station 2"));
+    form.editName.setText(QStringLiteral("Docking station 2"));
     WorkspaceConfig saved;
-    editor.saveProfile(saved);
+    form.editor.saveProfile(saved);
     QCOMPARE(saved.name, QStringLiteral("Docking station 2"));
     QCOMPARE(saved.displayId, profile.displayId);
     QCOMPARE(saved.audioId, profile.audioId);
 
     // Clearing a binding stays an explicit choice of the user.
-    comboDisplay.setCurrentIndex(0);
-    editor.saveProfile(saved);
+    form.comboDisplay.setCurrentIndex(0);
+    form.editor.saveProfile(saved);
     QVERIFY(saved.displayId.isEmpty());
     QCOMPARE(saved.audioId, profile.audioId);
+}
+
+void ModeFlowTests::profileEditor_renamesAProfileWithAManualIcon() {
+    using ModeFlow::Core::WorkspaceConfig;
+
+    FakeWorkspaceManager workspaceManager;
+    workspaceManager.m_iconSymbolsByProfileName = {{QStringLiteral("Work"), QStringLiteral("briefcase")},
+                                                   {QStringLiteral("Gaming"), QStringLiteral("gamepad")}};
+
+    ProfileEditorFixture form(workspaceManager);
+
+    // An icon that differs from the suggestion is a manual choice, and that used to mute the name field.
+    WorkspaceConfig profile;
+    profile.id = QStringLiteral("profile-1");
+    profile.name = QStringLiteral("Work");
+    profile.iconSymbol = QStringLiteral("rocket");
+    form.editor.loadProfile(profile);
+
+    QSignalSpy changedSpy(&form.editor, &ModeFlow::Gui::ProfileEditor::profileChanged);
+    form.editName.setText(QStringLiteral("Gaming"));
+
+    QCOMPARE(changedSpy.count(), 1);
+    QCOMPARE(form.editor.currentProfileIconSymbol(), QStringLiteral("rocket"));
+
+    WorkspaceConfig saved;
+    form.editor.saveProfile(saved);
+    QCOMPARE(saved.name, QStringLiteral("Gaming"));
+    QCOMPARE(saved.iconSymbol, QStringLiteral("rocket"));
+}
+
+void ModeFlowTests::profileEditor_followsTheSuggestedIconWhileItIsAutomatic() {
+    using ModeFlow::Core::WorkspaceConfig;
+
+    FakeWorkspaceManager workspaceManager;
+    workspaceManager.m_iconSymbolsByProfileName = {{QStringLiteral("Work"), QStringLiteral("briefcase")},
+                                                   {QStringLiteral("Gaming"), QStringLiteral("gamepad")}};
+
+    ProfileEditorFixture form(workspaceManager);
+
+    WorkspaceConfig profile;
+    profile.id = QStringLiteral("profile-1");
+    profile.name = QStringLiteral("Work");
+    profile.iconSymbol = QStringLiteral("briefcase");
+    form.editor.loadProfile(profile);
+
+    QSignalSpy changedSpy(&form.editor, &ModeFlow::Gui::ProfileEditor::profileChanged);
+    form.editName.setText(QStringLiteral("Gaming"));
+
+    // Nothing was picked by hand, so the icon keeps following the name and the edit is still saved.
+    QCOMPARE(changedSpy.count(), 1);
+    QCOMPARE(form.editor.currentProfileIconSymbol(), QStringLiteral("gamepad"));
 }
 
 QTEST_MAIN(ModeFlowTests)

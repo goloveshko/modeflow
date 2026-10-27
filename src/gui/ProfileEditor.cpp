@@ -47,13 +47,18 @@ void ProfileEditor::setupConnections() {
     });
 
     connect(m_widgets.editName, &QLineEdit::textChanged, this, [this](const QString& text) {
-        if (m_isUpdating || m_iconIsManual)
+        if (m_isUpdating)
             return;
 
-        const QString suggestedIcon = m_workspaceManager->suggestedProfileIconSymbol(text);
-        if (currentProfileIconSymbol() != suggestedIcon) {
-            setCurrentProfileIconSymbol(suggestedIcon);
+        // A manually chosen icon is the user's, so the name only restyles the automatic one. Saving the
+        // name never depended on the icon, and refusing it here dropped edits silently.
+        if (!m_iconIsManual) {
+            const QString suggestedIcon = m_workspaceManager->suggestedProfileIconSymbol(text);
+            if (currentProfileIconSymbol() != suggestedIcon) {
+                setCurrentProfileIconSymbol(suggestedIcon);
+            }
         }
+
         emit profileChanged();
     });
 
