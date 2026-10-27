@@ -10,8 +10,8 @@ namespace ModeFlow::Core {
 struct DeviceEntry {
     QString id;
     QString name;
-    bool isConnected = false;
-    bool isDefault = false;
+    bool isConnected = false; ///< detected right now, so the device can be picked
+    bool isActive = false;    ///< the device the system is currently using (active display, default endpoint)
 };
 
 struct AppLaunchConfig {

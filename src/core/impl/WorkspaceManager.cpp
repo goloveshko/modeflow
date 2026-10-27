@@ -92,8 +92,11 @@ int WorkspaceManager::activeRow() const {
 
 QList<DeviceEntry> WorkspaceManager::getAvailableDisplays() const {
     QList<DeviceEntry> res;
-    for (const auto& m : m_display->getPhysicalMonitors())
-        res.append({m.key, m.friendlyName, m.isActive, m.isPrimary});
+    for (const auto& m : m_display->getPhysicalMonitors()) {
+        // The cache already dropped targets that are not attached, so every entry here can be switched
+        // to. Being inactive only means the display is not part of the current desktop configuration.
+        res.append({m.key, m.friendlyName, /*isConnected=*/true, m.isActive});
+    }
     return Utils::DeviceUtils::sortAndGroupDevices(res);
 }
 

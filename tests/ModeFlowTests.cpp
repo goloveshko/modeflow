@@ -40,6 +40,7 @@
 #include "CommandLineBuilder.h"
 #include "ConfigManager.h"
 #include "ConfigTypes.h"
+#include "DeviceUtils.h"
 #include "DisplayManager.h"
 #include "HotkeyEdit.h"
 #include "HotkeyManager.h"
@@ -599,6 +600,8 @@ private slots:
     void profileImport_leavesTheModelUnchangedWhenSavingFails();
     void profileExport_roundTripsThroughTheSerializer();
     void profileExport_keepsAPreviousFileWhenTheTargetCannotBeReplaced();
+    void deviceUtils_keepsTheActiveDeviceFirstAndUndetectedHardwareLast();
+    void deviceUtils_selectableDevicesStopsBeforeUndetectedHardware();
     void updateService_versionComparison();
     void comInitGuard_initializesComOnWorkerThread();
     void logManager_togglingWhileWorkersEmitKeepsLogFileConsistent();
@@ -2078,6 +2081,54 @@ void ModeFlowTests::profileExport_keepsAPreviousFileWhenTheTargetCannotBeReplace
 
     lock.seek(0);
     QCOMPARE(lock.readAll(), QByteArrayLiteral("previous export"));
+}
+
+namespace {
+// A laptop panel that is in use, two attachable screens of which one is switched off right now, and a
+// monitor that is not detected at all. The active panel sorts last by name, so the expectation below
+// only holds while the provider keeps the device in use on top.
+QList<ModeFlow::Core::DeviceEntry> makeDeviceEntries() {
+    using ModeFlow::Core::DeviceEntry;
+
+    return {
+        DeviceEntry{QStringLiteral("tv"), QStringLiteral("LG TV"), true, false},
+        DeviceEntry{QStringLiteral("ghost"), QStringLiteral("Acer Monitor"), false, false},
+        DeviceEntry{QStringLiteral("panel"), QStringLiteral("Zen UZ27"), true, true},
+        DeviceEntry{QStringLiteral("second"), QStringLiteral("Dell UP321"), true, false},
+    };
+}
+} // namespace
+
+void ModeFlowTests::deviceUtils_keepsTheActiveDeviceFirstAndUndetectedHardwareLast() {
+    using ModeFlow::Utils::DeviceUtils;
+
+    const auto sorted = DeviceUtils::sortAndGroupDevices(makeDeviceEntries());
+
+    QStringList ids;
+    for (const auto& device : sorted) {
+        ids << device.id;
+    }
+
+    // The panel in use leads, the other detected screens follow alphabetically and the undetected
+    // monitor is pushed to the end instead of being mixed into the selectable range.
+    QCOMPARE(ids, (QStringList{QStringLiteral("panel"), QStringLiteral("second"), QStringLiteral("tv"),
+                               QStringLiteral("ghost")}));
+}
+
+void ModeFlowTests::deviceUtils_selectableDevicesStopsBeforeUndetectedHardware() {
+    using ModeFlow::Utils::DeviceUtils;
+
+    const auto selectable = DeviceUtils::selectableDevices(DeviceUtils::sortAndGroupDevices(makeDeviceEntries()));
+
+    QStringList ids;
+    for (const auto& device : selectable) {
+        ids << device.id;
+    }
+    std::sort(ids.begin(), ids.end());
+
+    // Ordering is the other test's job: here only the filter matters, and the undetected monitor must
+    // not be offered in the tray at all.
+    QCOMPARE(ids, (QStringList{QStringLiteral("panel"), QStringLiteral("second"), QStringLiteral("tv")}));
 }
 
 QTEST_MAIN(ModeFlowTests)

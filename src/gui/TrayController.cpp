@@ -1,6 +1,7 @@
 ﻿#include "TrayController.h"
 
 #include "Constants.h"
+#include "DeviceUtils.h"
 #include "FontAwesome.h"
 #include "IWorkspaceManager.h"
 
@@ -128,14 +129,10 @@ void TrayController::populateDeviceSubmenu(QMenu* menu, const QList<Core::Device
         return;
     menu->clear();
 
-    for (const auto& device : devices) {
-        if (!device.isConnected) {
-            break;
-        }
-
+    for (const auto& device : Utils::DeviceUtils::selectableDevices(devices)) {
         auto* action = menu->addAction(device.name);
         action->setCheckable(true);
-        action->setChecked(device.isDefault);
+        action->setChecked(device.isActive);
         connect(action, &QAction::triggered, this, [emitFn, device]() { emitFn(device.id); });
     }
 }
