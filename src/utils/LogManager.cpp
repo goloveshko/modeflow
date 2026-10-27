@@ -125,6 +125,11 @@ void LogManager::setup(bool enabled) {
     qInstallMessageHandler(LogManager::messageHandler);
 }
 
+bool LogManager::isEnabled() {
+    QMutexLocker locker(&s_mutex);
+    return s_enabled;
+}
+
 void LogManager::messageHandler(QtMsgType type, const QMessageLogContext& context, const QString& msg) {
     // Enabled state and the log file belong to one snapshot: worker threads keep emitting while
     // the GUI toggles logging, so reading either of them outside the mutex is a data race.

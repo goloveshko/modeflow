@@ -254,13 +254,46 @@ public:
 
     QFuture<bool> requestAutostartToggleAsync(bool enabled, int delay, bool enableLogging = false) override {
         autostartRequests.append({enabled, delay});
-        if (!autostartToggleShouldSucceed) {
+
+        if (m_deferNextAutostartToggle) {
+            // The test decides when Task Scheduler reports back, so the dialog can be observed while the
+            // external change is still running.
+            m_deferNextAutostartToggle = false;
+            auto promise = std::make_unique<QPromise<bool>>();
+            promise->start();
+            QFuture<bool> future = promise->future();
+            m_pendingAutostartToggles.push_back({enabled, delay, std::move(promise)});
+            return future;
+        }
+
+        const bool success =
+            autostartToggleResults.isEmpty() ? autostartToggleShouldSucceed : autostartToggleResults.takeFirst();
+        if (!success) {
             return QtFuture::makeReadyValueFuture(false);
         }
 
         autostartEnabledValue = enabled;
         autostartDelaySeconds = delay;
         return QtFuture::makeReadyValueFuture(true);
+    }
+
+    void deferNextAutostartToggle() { m_deferNextAutostartToggle = true; }
+
+    // Applies the same bookkeeping an immediate toggle would, so the fake stays believable afterwards.
+    void finishDeferredAutostartToggle(bool success) {
+        if (m_pendingAutostartToggles.empty()) {
+            return;
+        }
+        PendingToggle pending = std::move(m_pendingAutostartToggles.front());
+        m_pendingAutostartToggles.erase(m_pendingAutostartToggles.begin());
+
+        if (success) {
+            autostartEnabledValue = pending.enabled;
+            autostartDelaySeconds = pending.delay;
+        }
+
+        pending.promise->addResult(success);
+        pending.promise->finish();
     }
 
     int autostartDelay() const override { return autostartDelaySeconds; }
@@ -342,6 +375,15 @@ public:
     QString qtStyleKey = QStringLiteral("windows11");
     QList<QPair<bool, int>> autostartRequests;
     bool autostartToggleShouldSucceed = true;
+    // When filled, these decide the outcome of the next toggles in order, whatever the default says.
+    QList<bool> autostartToggleResults;
+    bool m_deferNextAutostartToggle = false;
+    struct PendingToggle {
+        bool enabled;
+        int delay;
+        std::unique_ptr<QPromise<bool>> promise;
+    };
+    std::vector<PendingToggle> m_pendingAutostartToggles;
     bool saveShouldSucceed = true;
     int saveCalls = 0;
 
@@ -622,6 +664,9 @@ private slots:
 
     void settingsDialog_hotkeyConflict_showsWarningViaDialogManager();
     void settingsDialog_keepsEditsMadeWhileAutostartIsBeingChecked();
+    void settingsDialog_appliesRuntimeLoggingOnlyAfterTheSettingsAreSaved();
+    void settingsDialog_leavesEverythingUnchangedWhenTheLogonTaskRefusesTheChange();
+    void settingsDialog_warnsWhenTheRollbackAfterAFailedSaveAlsoFails();
     void profileEditor_keepsBindingOfADeviceThatIsNotDetected();
     void profileEditor_renamesAProfileWithAManualIcon();
     void profileEditor_followsTheSuggestedIconWhileItIsAutomatic();
@@ -1734,6 +1779,148 @@ void ModeFlowTests::settingsDialog_keepsEditsMadeWhileAutostartIsBeingChecked() 
     QVERIFY(autostartCheck->isEnabled());
     QVERIFY(autostartCheck->isChecked());
     QVERIFY(saveButton->isEnabled());
+}
+
+namespace {
+// Buttons and checks of a dialog that is never shown, which is enough to drive its signal/slot logic.
+struct SettingsDialogHandles {
+    QPushButton* save = nullptr;
+    QPushButton* cancel = nullptr;
+    QCheckBox* autostart = nullptr;
+    QCheckBox* logging = nullptr;
+};
+
+SettingsDialogHandles findSettingsHandles(ModeFlow::Gui::SettingsDialog& dialog) {
+    SettingsDialogHandles handles;
+    auto* buttonBox = dialog.findChild<QDialogButtonBox*>();
+    if (buttonBox) {
+        handles.save = buttonBox->button(QDialogButtonBox::Save);
+        handles.cancel = buttonBox->button(QDialogButtonBox::Cancel);
+    }
+    handles.autostart = dialog.findChild<QCheckBox*>("checkAutostart");
+    handles.logging = dialog.findChild<QCheckBox*>("checkLoggingEnabled");
+    return handles;
+}
+} // namespace
+
+void ModeFlowTests::settingsDialog_appliesRuntimeLoggingOnlyAfterTheSettingsAreSaved() {
+    using ModeFlow::Utils::LogManager;
+
+    FakeSettingsManager settingsManager;
+    FakeWorkspaceManager workspaceManager;
+    FakeStyleManager styleManager;
+    FakeDialogManager dialogManager;
+
+    const bool loggingBefore = LogManager::isEnabled();
+    QScopeGuard restoreLogging([loggingBefore] { LogManager::setup(loggingBefore); });
+    LogManager::setup(false);
+
+    ModeFlow::Gui::SettingsDialog dialog(&dialogManager, &settingsManager, &workspaceManager, &styleManager);
+    QCoreApplication::processEvents();
+
+    const auto handles = findSettingsHandles(dialog);
+    QVERIFY(handles.save && handles.cancel && handles.autostart && handles.logging);
+
+    handles.logging->setChecked(true);
+
+    // The logon task will answer only when the test lets it.
+    settingsManager.deferNextAutostartToggle();
+    handles.autostart->setChecked(true);
+    QVERIFY(handles.save->isEnabled());
+
+    QSignalSpy finishedSpy(&dialog, &QDialog::finished);
+    handles.save->click();
+    QCoreApplication::processEvents();
+
+    // Nothing has been written and logging stayed off: the change is still waiting for Task Scheduler.
+    QCOMPARE(settingsManager.saveCalls, 0);
+    QVERIFY(!LogManager::isEnabled());
+
+    // The dialog cannot be abandoned while the external operation is running.
+    QVERIFY(!handles.cancel->isEnabled());
+    dialog.reject();
+    QCOMPARE(finishedSpy.count(), 0);
+
+    settingsManager.finishDeferredAutostartToggle(true);
+    QCoreApplication::processEvents();
+
+    // One transaction, one outcome: the task changed, the settings reached disk and logging followed.
+    QCOMPARE(settingsManager.saveCalls, 1);
+    QVERIFY(LogManager::isEnabled());
+    QCOMPARE(finishedSpy.count(), 1);
+}
+
+void ModeFlowTests::settingsDialog_leavesEverythingUnchangedWhenTheLogonTaskRefusesTheChange() {
+    using ModeFlow::Utils::LogManager;
+
+    FakeSettingsManager settingsManager;
+    settingsManager.autostartToggleShouldSucceed = false;
+    FakeWorkspaceManager workspaceManager;
+    FakeStyleManager styleManager;
+    FakeDialogManager dialogManager;
+
+    const bool loggingBefore = LogManager::isEnabled();
+    QScopeGuard restoreLogging([loggingBefore] { LogManager::setup(loggingBefore); });
+    LogManager::setup(false);
+
+    ModeFlow::Gui::SettingsDialog dialog(&dialogManager, &settingsManager, &workspaceManager, &styleManager);
+    QCoreApplication::processEvents();
+
+    const auto handles = findSettingsHandles(dialog);
+    QVERIFY(handles.save && handles.cancel && handles.autostart && handles.logging);
+
+    handles.logging->setChecked(true);
+    handles.autostart->setChecked(true);
+
+    QSignalSpy finishedSpy(&dialog, &QDialog::finished);
+    handles.save->click();
+    QCoreApplication::processEvents();
+
+    // The task refused, so no setting was written and the runtime logging never switched either.
+    QCOMPARE(settingsManager.saveCalls, 0);
+    QVERIFY(!LogManager::isEnabled());
+    QVERIFY(!handles.autostart->isChecked());
+    QCOMPARE(finishedSpy.count(), 0);
+
+    // The dialog is operable again for another attempt.
+    QVERIFY(handles.cancel->isEnabled());
+}
+
+void ModeFlowTests::settingsDialog_warnsWhenTheRollbackAfterAFailedSaveAlsoFails() {
+    using ModeFlow::Utils::LogManager;
+
+    FakeSettingsManager settingsManager;
+    // The logon task accepts the change, then settings cannot be written and the task will not go back.
+    settingsManager.autostartToggleResults = {true, false};
+    settingsManager.saveShouldSucceed = false;
+    FakeWorkspaceManager workspaceManager;
+    FakeStyleManager styleManager;
+    FakeDialogManager dialogManager;
+
+    const bool loggingBefore = LogManager::isEnabled();
+    QScopeGuard restoreLogging([loggingBefore] { LogManager::setup(loggingBefore); });
+    LogManager::setup(false);
+
+    ModeFlow::Gui::SettingsDialog dialog(&dialogManager, &settingsManager, &workspaceManager, &styleManager);
+    QCoreApplication::processEvents();
+
+    const auto handles = findSettingsHandles(dialog);
+    QVERIFY(handles.save && handles.cancel && handles.autostart && handles.logging);
+
+    handles.autostart->setChecked(true);
+
+    QSignalSpy finishedSpy(&dialog, &QDialog::finished);
+    handles.save->click();
+    QCoreApplication::processEvents();
+    QCoreApplication::processEvents();
+
+    // Change plus rollback, and the rollback failure is reported instead of a silent divergence.
+    QCOMPARE(settingsManager.autostartRequests.size(), 2);
+    QCOMPARE(dialogManager.lastWarningTitle, QStringLiteral("Settings"));
+    QVERIFY(dialogManager.lastWarningText.contains(QStringLiteral("could not be restored")));
+    QVERIFY(!LogManager::isEnabled());
+    QCOMPARE(finishedSpy.count(), 0);
+    QVERIFY(handles.cancel->isEnabled());
 }
 
 void ModeFlowTests::updateService_versionComparison() {

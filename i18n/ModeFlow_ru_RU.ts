@@ -669,6 +669,14 @@
 <context>
     <name>ModeFlow::Gui::SettingsDialog</name>
     <message>
+        <source>Settings</source>
+        <translation>Настройки</translation>
+    </message>
+    <message>
+        <source>The settings were not saved and the logon task could not be restored. Restart ModeFlow to refresh its state.</source>
+        <translation>Настройки не сохранены, а задачу автозапуска не удалось вернуть. Перезапустите ModeFlow, чтобы обновить её состояние.</translation>
+    </message>
+    <message>
         <source>Save</source>
         <translation>Сохранить</translation>
     </message>

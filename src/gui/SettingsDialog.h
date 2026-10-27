@@ -72,6 +72,9 @@ private:
     bool hasUnsavedChanges() const;
     bool requiresElevation() const;
     bool shouldUpdateAutostart(const FormState& from, const FormState& to) const;
+    bool applySettings(const FormState& state);
+    void restoreSettingsState(const FormState& state);
+    void setApplyInProgress(bool inProgress);
     void applySettingsState(const FormState& state);
     void refreshWindowsIntegrationUi();
     void refreshActionButtons();
@@ -91,6 +94,7 @@ private:
     Core::IDialogManager* m_dialogManager = nullptr;
     FormState m_initialState;
     bool m_isValidatingHotkey = false;
+    bool m_applyInFlight = false;
 };
 
 } // namespace ModeFlow::Gui

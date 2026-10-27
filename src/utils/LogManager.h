@@ -10,6 +10,7 @@ class LogManager {
 
 public:
     static void setup(bool enabled);
+    static bool isEnabled();
     static void messageHandler(QtMsgType type, const QMessageLogContext& context, const QString& msg);
 
     static QString logFilePath();

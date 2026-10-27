@@ -68,56 +68,93 @@ void SettingsDialog::loadSettings() {
 }
 
 bool SettingsDialog::saveSettings() {
+    if (m_applyInFlight) {
+        return false;
+    }
+
     const auto previousState = m_initialState;
     const auto newState = currentFormState();
 
     const bool autostartNeedsUpdate = shouldUpdateAutostart(previousState, newState);
 
-    if (newState.autoLogging != previousState.autoLogging) {
-        Utils::LogManager::setup(newState.autoLogging);
-    }
-
     if (autostartNeedsUpdate) {
-        ui->buttonBox->button(QDialogButtonBox::Save)->setEnabled(false);
+        setApplyInProgress(true);
 
         m_settingsManager
             ->requestAutostartToggleAsync(newState.autostartEnabled, newState.autostartDelay, newState.autoLogging)
             .then(this, [this, previousState, newState](bool success) {
-                ui->buttonBox->button(QDialogButtonBox::Save)->setEnabled(true);
-
-                if (success) {
-                    applySettingsState(newState);
-
-                    if (m_settingsManager->saveSettings()) {
-                        m_initialState = newState;
-                        BaseDialog::accept();
-                    } else {
-                        m_settingsManager
-                            ->requestAutostartToggleAsync(previousState.autostartEnabled, previousState.autostartDelay,
-                                                          previousState.autoLogging)
-                            .then(this, [this, previousState](bool) {
-                                applySettingsState(previousState);
-                                ui->checkAutostart->setChecked(previousState.autostartEnabled);
-                                qCWarning(lcGui) << "Unable to save settings. Changes discarded.";
-                            });
-                    }
-                } else {
+                if (!success) {
+                    // The logon task stayed as it was, so nothing else has to move either.
                     ui->checkAutostart->setChecked(previousState.autostartEnabled);
-                    qCWarning(lcGui) << "Failed to roll back autostart state after settings save failure";
+                    setApplyInProgress(false);
+                    qCWarning(lcGui) << "Failed to update the logon task; settings were not saved.";
+                    return;
                 }
+
+                if (applySettings(newState)) {
+                    m_initialState = newState;
+                    setApplyInProgress(false);
+                    BaseDialog::accept();
+                    return;
+                }
+
+                // The task changed but the settings never reached disk, so the task has to go back and the
+                // user has to learn when even that failed.
+                m_settingsManager
+                    ->requestAutostartToggleAsync(previousState.autostartEnabled, previousState.autostartDelay,
+                                                  previousState.autoLogging)
+                    .then(this, [this, previousState](bool rolledBack) {
+                        restoreSettingsState(previousState);
+                        setApplyInProgress(false);
+
+                        if (!rolledBack) {
+                            m_dialogManager->showWarning(
+                                this, tr("Settings"),
+                                tr("The settings were not saved and the logon task could not be restored. "
+                                   "Restart ModeFlow to refresh its state."));
+                        }
+
+                        qCWarning(lcGui) << "Unable to save settings. Changes discarded.";
+                    });
             });
 
         return false;
     }
 
-    applySettingsState(newState);
-    if (!m_settingsManager->saveSettings()) {
-        applySettingsState(previousState);
+    if (!applySettings(newState)) {
+        restoreSettingsState(previousState);
         return false;
     }
 
     m_initialState = newState;
     return true;
+}
+
+bool SettingsDialog::applySettings(const FormState& state) {
+    applySettingsState(state);
+
+    if (!m_settingsManager->saveSettings()) {
+        return false;
+    }
+
+    // Runtime logging follows the state that actually reached disk; switching it earlier would leave the
+    // app logging while the saved settings say the opposite.
+    Utils::LogManager::setup(state.autoLogging);
+    return true;
+}
+
+void SettingsDialog::restoreSettingsState(const FormState& state) {
+    applySettingsState(state);
+    Utils::LogManager::setup(state.autoLogging);
+    ui->checkAutostart->setChecked(state.autostartEnabled);
+}
+
+void SettingsDialog::setApplyInProgress(bool inProgress) {
+    m_applyInFlight = inProgress;
+
+    // A change that is still talking to Task Scheduler must not be re-entered or abandoned by closing.
+    ui->buttonBox->button(QDialogButtonBox::Save)->setEnabled(!inProgress && hasUnsavedChanges());
+    ui->buttonBox->button(QDialogButtonBox::Cancel)->setEnabled(!inProgress);
 }
 
 void SettingsDialog::setupButtonBox() {
@@ -394,12 +431,21 @@ void SettingsDialog::changeEvent(QEvent* event) {
 }
 
 void SettingsDialog::closeEvent(QCloseEvent* event) {
+    if (m_applyInFlight) {
+        event->ignore();
+        return;
+    }
+
     emit hotkeyCaptureChanged(false);
 
     reject();
 }
 
 void SettingsDialog::reject() {
+    if (m_applyInFlight) {
+        return;
+    }
+
     emit hotkeyCaptureChanged(false);
     BaseDialog::reject();
 }
