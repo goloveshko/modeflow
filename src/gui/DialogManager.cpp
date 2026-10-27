@@ -124,10 +124,9 @@ void DialogManager::showUpdateDialog() {
 
         if (result == UpdateDialog::SkipVersionResult) {
             m_services.settingsManager->setSkippedVersion(version);
-
-            if (m_services.mainWindow) {
-                m_services.mainWindow->setUpdateAvailable(false, {});
-            }
+            // The badge also lives in AppController's pending version, so hiding the current
+            // window is not enough; a window recreated after a theme change would show it again.
+            m_services.updateService->dismissAvailableUpdate();
         }
     }
 }

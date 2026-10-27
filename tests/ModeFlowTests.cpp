@@ -17,10 +17,12 @@
 #include <QDir>
 #include <QFile>
 #include <QFileInfo>
+#include <QJsonDocument>
 #include <QPair>
 #include <QPoint>
 #include <QScopeGuard>
 #include <QSize>
+#include <QStandardPaths>
 #include <QTextStream>
 #include <atomic>
 #include <memory>
@@ -677,6 +679,8 @@ private slots:
     void deviceUtils_keepsTheActiveDeviceFirstAndUndetectedHardwareLast();
     void deviceUtils_selectableDevicesStopsBeforeUndetectedHardware();
     void updateService_versionComparison();
+    void updateService_usableReleaseRejectsADraftThatCannotBeOpened();
+    void updateService_offersACachedReleaseOnlyWhenItIsUsableAndNotSkipped();
     void comInitGuard_initializesComOnWorkerThread();
     void logManager_togglingWhileWorkersEmitKeepsLogFileConsistent();
 };
@@ -1936,6 +1940,101 @@ void ModeFlowTests::updateService_versionComparison() {
     QVERIFY(!UpdateService::isNewerVersion(QStringLiteral("v1.0.0"), QStringLiteral("1.0.0")));
     QVERIFY(!UpdateService::isNewerVersion(QStringLiteral("0.9.0"), QStringLiteral("1.0.0")));
     QVERIFY(!UpdateService::isNewerVersion(QStringLiteral("0.9.9"), QStringLiteral("1.0.0")));
+}
+
+namespace {
+QJsonObject makeUpdateManifest(const QString& tagName, const QString& htmlUrl) {
+    QJsonObject manifest;
+    manifest.insert(QStringLiteral("tag_name"), tagName);
+    manifest.insert(QStringLiteral("html_url"), htmlUrl);
+    manifest.insert(QStringLiteral("body"), QStringLiteral("Notes"));
+    return manifest;
+}
+} // namespace
+
+void ModeFlowTests::updateService_usableReleaseRejectsADraftThatCannotBeOpened() {
+    using ModeFlow::Services::UpdateService;
+
+    const QString page = QStringLiteral("https://github.com/goloveshko/ModeFlow/releases/tag/v999.0.0");
+
+    const auto good = UpdateService::usableRelease(makeUpdateManifest(QStringLiteral("v999.0.0"), page));
+    QVERIFY(good.has_value());
+    QCOMPARE(good->version, QStringLiteral("999.0.0"));
+    QCOMPARE(good->downloadUrl.host(), QStringLiteral("github.com"));
+    QCOMPARE(good->changelog, QStringLiteral("Notes"));
+
+    // A tag that is not a version number used to look like "already up to date" and burned the daily window.
+    QVERIFY(!UpdateService::usableRelease(makeUpdateManifest(QString(), page)).has_value());
+    QVERIFY(!UpdateService::usableRelease(makeUpdateManifest(QStringLiteral("nightly"), page)).has_value());
+    QVERIFY(!UpdateService::usableRelease(makeUpdateManifest(QStringLiteral("999.0.0-rc1"), page)).has_value());
+
+    // A badge with no page to open is worse than no badge.
+    const QString relativePage = QStringLiteral("releases/latest");
+    const QString scriptPage = QStringLiteral("javascript:alert(1)");
+    QVERIFY(!UpdateService::usableRelease(makeUpdateManifest(QStringLiteral("999.0.0"), QString())).has_value());
+    QVERIFY(!UpdateService::usableRelease(makeUpdateManifest(QStringLiteral("999.0.0"), relativePage)).has_value());
+    QVERIFY(!UpdateService::usableRelease(makeUpdateManifest(QStringLiteral("999.0.0"), scriptPage)).has_value());
+}
+
+void ModeFlowTests::updateService_offersACachedReleaseOnlyWhenItIsUsableAndNotSkipped() {
+    using ModeFlow::Core::ConfigManager;
+    using ModeFlow::Services::UpdateService;
+
+    QStandardPaths::setTestModeEnabled(true);
+    const QString cacheDir = QStandardPaths::writableLocation(QStandardPaths::CacheLocation);
+    const QString cachePath = cacheDir + QStringLiteral("/update_cache.json");
+    const auto restorePaths = qScopeGuard([cachePath]() {
+        QFile::remove(cachePath);
+        QStandardPaths::setTestModeEnabled(false);
+    });
+
+    // Test mode parks writableLocation() in Qt's own "qttest" tree; anything else means the
+    // assertions below would read and delete the cache of the installed application.
+    if (!cacheDir.contains(QStringLiteral("/qttest/"))) {
+        QSKIP("Qt test mode did not redirect the cache location; refusing to touch the real update cache.");
+    }
+
+    auto writeCache = [cachePath](const QJsonObject& manifest) {
+        QDir().mkpath(QFileInfo(cachePath).absolutePath());
+        QFile file(cachePath);
+        if (!file.open(QIODevice::WriteOnly | QIODevice::Truncate)) {
+            return false;
+        }
+        file.write(QJsonDocument(manifest).toJson(QJsonDocument::Compact));
+        return true;
+    };
+
+    ConfigManager config;
+    const QString page = QStringLiteral("https://github.com/goloveshko/ModeFlow/releases/tag/v999.0.0");
+
+    QVERIFY(writeCache(makeUpdateManifest(QStringLiteral("999.0.0"), QString())));
+    {
+        UpdateService service(&config);
+        QVERIFY(!service.isUpdateAvailable());
+        QVERIFY(!QFile::exists(cachePath));
+    }
+
+    QVERIFY(writeCache(makeUpdateManifest(QStringLiteral("999.0.0"), page)));
+    {
+        UpdateService service(&config);
+        QVERIFY(service.isUpdateAvailable());
+        QCOMPARE(service.latestVersion(), QStringLiteral("999.0.0"));
+        QCOMPARE(service.downloadUrl().toString(), page);
+
+        QSignalSpy cleared(&service, &UpdateService::noUpdateAvailable);
+        service.dismissAvailableUpdate();
+        QCOMPARE(cleared.count(), 1);
+        QVERIFY(!service.isUpdateAvailable());
+        QVERIFY(!QFile::exists(cachePath));
+    }
+
+    // A release the user dismissed must not return from the cache on the next start.
+    QVERIFY(writeCache(makeUpdateManifest(QStringLiteral("999.0.0"), page)));
+    config.setSkippedVersion(QStringLiteral("999.0.0"));
+    {
+        UpdateService service(&config);
+        QVERIFY(!service.isUpdateAvailable());
+    }
 }
 
 void ModeFlowTests::comInitGuard_initializesComOnWorkerThread() {

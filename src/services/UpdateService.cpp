@@ -23,6 +23,21 @@ QString sanitizeVersion(QString version) {
     }
     return version;
 }
+
+QUrl parseReleaseUrl(const QString& raw) {
+    const QString trimmed = raw.trimmed();
+    if (trimmed.isEmpty()) {
+        return {};
+    }
+
+    const QUrl url(trimmed, QUrl::StrictMode);
+    const QString scheme = url.scheme();
+    if (!url.isValid() || url.host().isEmpty() || (scheme != u"http" && scheme != u"https")) {
+        return {};
+    }
+
+    return url;
+}
 } // namespace
 
 UpdateService::UpdateService(Core::ConfigManager* configManager, QObject* parent)
@@ -48,7 +63,7 @@ void UpdateService::checkForUpdates(bool force) {
 
     if (!force && !shouldCheck()) {
         qCDebug(lcService) << "Update check skipped (last check was <24h ago)";
-        if (m_updateAvailable && m_configManager && m_latestVersion != m_configManager->skippedVersion()) {
+        if (m_updateAvailable && !isSkipped(m_latestVersion)) {
             emit updateAvailable(m_latestVersion, m_downloadUrl, m_changelog);
         } else {
             emit noUpdateAvailable();
@@ -96,41 +111,64 @@ void UpdateService::onCheckReply(QNetworkReply* reply) {
 
     const QJsonObject manifest = doc.object();
 
-    const QString latestVersion = sanitizeVersion(manifest[u"tag_name"_s].toString());
-    const QUrl downloadUrl(manifest[u"html_url"_s].toString());
-    const QString changelog = manifest[u"body"_s].toString();
-
-    if (latestVersion.isEmpty() || downloadUrl.isEmpty()) {
-        qCWarning(lcService) << "Update manifest is missing required fields (tag_name/version or html_url/url)";
+    const std::optional<ReleaseInfo> release = usableRelease(manifest);
+    if (!release) {
+        // Damaged data must not burn the 24-hour window nor throw away the last good release.
+        qCWarning(lcService) << "Update manifest has no usable tag_name/html_url";
         emit checkFailed(tr("Invalid update manifest"));
         return;
     }
 
     markChecked();
 
-    if (!isNewerVersion(latestVersion, Info::Version)) {
+    if (!isNewerVersion(release->version, Info::Version)) {
         qCDebug(lcService) << "Already up to date:" << Info::Version;
         clearCache();
         emit noUpdateAvailable();
         return;
     }
 
-    qCDebug(lcService) << "Update available:" << latestVersion;
+    qCDebug(lcService) << "Update available:" << release->version;
     m_updateAvailable = true;
-    m_latestVersion = latestVersion;
-    m_downloadUrl = downloadUrl;
-    m_changelog = changelog;
+    m_latestVersion = release->version;
+    m_downloadUrl = release->downloadUrl;
+    m_changelog = release->changelog;
 
     saveUpdateToCache(manifest);
 
     // Suppress update notification on automatic check if user chose to skip this specific version
-    if (!m_isManualCheck && m_configManager && m_configManager->skippedVersion() == latestVersion) {
-        qCDebug(lcService) << "Update" << latestVersion << "was skipped by user preference.";
+    if (!m_isManualCheck && isSkipped(release->version)) {
+        qCDebug(lcService) << "Update" << release->version << "was skipped by user preference.";
         emit noUpdateAvailable();
         return;
     }
 
-    emit updateAvailable(latestVersion, downloadUrl, changelog);
+    emit updateAvailable(release->version, release->downloadUrl, release->changelog);
+}
+
+std::optional<UpdateService::ReleaseInfo> UpdateService::usableRelease(const QJsonObject& manifest) {
+    const QString version = sanitizeVersion(manifest[u"tag_name"_s].toString());
+    if (version.isEmpty()) {
+        return std::nullopt;
+    }
+
+    qsizetype suffixIndex = 0;
+    const QVersionNumber parsed = QVersionNumber::fromString(version, &suffixIndex);
+    if (parsed.isNull() || suffixIndex != version.size()) {
+        return std::nullopt;
+    }
+
+    const QUrl downloadUrl = parseReleaseUrl(manifest[u"html_url"_s].toString());
+    if (downloadUrl.isEmpty()) {
+        return std::nullopt;
+    }
+
+    return ReleaseInfo { version, downloadUrl, manifest[u"body"_s].toString() };
+}
+
+void UpdateService::dismissAvailableUpdate() {
+    clearCache();
+    emit noUpdateAvailable();
 }
 
 bool UpdateService::isNewerVersion(const QString& remote, const QString& local) {
@@ -146,6 +184,10 @@ bool UpdateService::shouldCheck() const {
     }
     const qint64 last = m_configManager->lastUpdateCheckTimestamp();
     return QDateTime::currentMSecsSinceEpoch() - last > Utils::UpdateCheckIntervalMs;
+}
+
+bool UpdateService::isSkipped(const QString& version) const {
+    return m_configManager && m_configManager->skippedVersion() == version;
 }
 
 void UpdateService::markChecked() {
@@ -170,20 +212,23 @@ void UpdateService::loadCachedUpdate() {
 
     const QJsonObject manifest = doc.object();
 
-    const QString version = sanitizeVersion(manifest[u"tag_name"_s].toString());
-    const QString url = manifest[u"html_url"_s].toString();
-    const QString changelog = manifest[u"body"_s].toString();
+    const std::optional<ReleaseInfo> release = usableRelease(manifest);
+    if (!release || !isNewerVersion(release->version, Info::Version)) {
+        clearCache();
+        return;
+    }
 
-    if (!isNewerVersion(version, Info::Version)) {
+    if (isSkipped(release->version)) {
+        // The user dismissed this release; the cache must not hand the badge back on the next start.
         clearCache();
         return;
     }
 
     m_updateAvailable = true;
-    m_latestVersion = version;
-    m_downloadUrl = QUrl(url);
-    m_changelog = changelog;
-    qCDebug(lcService) << "Loaded cached update from file:" << version;
+    m_latestVersion = release->version;
+    m_downloadUrl = release->downloadUrl;
+    m_changelog = release->changelog;
+    qCDebug(lcService) << "Loaded cached update from file:" << release->version;
 }
 
 void UpdateService::saveUpdateToCache(const QJsonObject& manifest) {

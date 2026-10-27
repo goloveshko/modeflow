@@ -1,7 +1,10 @@
 ﻿#pragma once
 
+#include <QJsonObject>
 #include <QNetworkAccessManager>
 #include <QNetworkReply>
+
+#include <optional>
 
 namespace ModeFlow::Core {
 class ConfigManager;
@@ -17,13 +20,23 @@ public:
 
     void checkForUpdates(bool force = false);
 
+    /** @brief Forget the offered release so a window created later cannot inherit its badge. */
+    void dismissAvailableUpdate();
+
     bool isUpdateAvailable() const { return m_updateAvailable; }
     bool isCheckingInProgress() const { return m_checkInProgress; }
     QString latestVersion() const { return m_latestVersion; }
     QUrl downloadUrl() const { return m_downloadUrl; }
     QString changelog() const { return m_changelog; }
 
+    struct ReleaseInfo {
+        QString version;
+        QUrl downloadUrl;
+        QString changelog;
+    };
+
     static bool isNewerVersion(const QString& remote, const QString& local);
+    static std::optional<ReleaseInfo> usableRelease(const QJsonObject& manifest);
 
 signals:
     void updateAvailable(const QString& version, const QUrl& url, const QString& changelog);
@@ -35,6 +48,7 @@ private slots:
 
 private:
     bool shouldCheck() const;
+    bool isSkipped(const QString& version) const;
     void markChecked();
     void loadCachedUpdate();
     void saveUpdateToCache(const QJsonObject&);
