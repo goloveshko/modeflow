@@ -49,6 +49,18 @@ QMutex LogManager::s_mutex;
 bool LogManager::s_enabled = false;
 QString LogManager::s_cachedLogPath;
 
+bool LogManager::rollAside(const QString& logPath) {
+    if (!QFile::exists(logPath)) {
+        return false;
+    }
+
+    // A long session must not grow the log without end: the previous generation is replaced rather
+    // than accumulated, so the folder holds at most two log files.
+    const QString previousPath = logPath + u".1"_s;
+    QFile::remove(previousPath);
+    return QFile::rename(logPath, previousPath);
+}
+
 QString LogManager::logFilePath() {
     QMutexLocker locker(&s_mutex);
     if (!s_cachedLogPath.isEmpty()) {
@@ -97,9 +109,9 @@ void LogManager::setup(bool enabled) {
     {
         QMutexLocker locker(&s_mutex);
 
-        // Rotation (if > 5MB)
+        // An oversized file from earlier sessions is rolled before it grows any further.
         if (QFile(logPath).size() > MaxLogFileSizeBytes) {
-            QFile::remove(logPath);
+            rollAside(logPath);
         }
 
         if (s_logFile.isOpen()) {
@@ -168,6 +180,20 @@ void LogManager::messageHandler(QtMsgType type, const QMessageLogContext& contex
     QTextStream out(&s_logFile);
     out << formattedMsg;
     out.flush();
+
+    // The size limit has to hold inside one long session, not only between restarts. The file is
+    // closed before it is moved: renaming an open file would keep this handle writing into the
+    // rolled generation.
+    if (s_logFile.pos() > MaxLogFileSizeBytes) {
+        const QString logPath = s_logFile.fileName();
+        s_logFile.close();
+        rollAside(logPath);
+        // Logging is turned off when the fresh file cannot be opened: qCWarning from inside the
+        // handler would take the same non-recursive mutex this thread already holds.
+        if (!s_logFile.open(QIODevice::WriteOnly | QIODevice::Append | QIODevice::Text)) {
+            s_enabled = false;
+        }
+    }
 }
 
 } // namespace ModeFlow::Utils

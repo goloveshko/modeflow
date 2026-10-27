@@ -15,6 +15,13 @@ public:
 
     static QString logFilePath();
 
+    /**
+     * @brief Moves a finished log file aside, keeping exactly one previous generation.
+     * @param logPath Path of the closed log file.
+     * @return true when the file was moved.
+     */
+    static bool rollAside(const QString& logPath);
+
 private:
     static QFile s_logFile;
     static QMutex s_mutex;

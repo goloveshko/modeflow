@@ -24,6 +24,7 @@
 #include <QScopeGuard>
 #include <QSize>
 #include <QStandardPaths>
+#include <QTemporaryDir>
 #include <QTextStream>
 #include <QUuid>
 #include <atomic>
@@ -706,6 +707,7 @@ private slots:
     void singleInstanceGuard_raisesTheWindowForAHandshakeSplitIntoFragments();
     void singleInstanceGuard_dropsClientsThatDoNotCompleteTheHandshake();
     void comInitGuard_initializesComOnWorkerThread();
+    void logManager_rollAsideKeepsOnePreviousGeneration();
     void logManager_togglingWhileWorkersEmitKeepsLogFileConsistent();
 };
 
@@ -2298,6 +2300,46 @@ void ModeFlowTests::comInitGuard_initializesComOnWorkerThread() {
 #else
     QSKIP("COM initialization is a Windows-only concern");
 #endif
+}
+
+void ModeFlowTests::logManager_rollAsideKeepsOnePreviousGeneration() {
+    using ModeFlow::Utils::LogManager;
+
+    QTemporaryDir dir;
+    QVERIFY(dir.isValid());
+    const QString logPath = dir.filePath(QStringLiteral("log.txt"));
+    const QString rolledPath = dir.filePath(QStringLiteral("log.txt.1"));
+
+    const auto write = [](const QString& path, const QString& content) {
+        QFile file(path);
+        if (!file.open(QIODevice::WriteOnly))
+            return false;
+        file.write(content.toUtf8());
+        file.close();
+        return true;
+    };
+    const auto read = [](const QString& path) {
+        QFile file(path);
+        if (!file.open(QIODevice::ReadOnly))
+            return QString();
+        return QString::fromUtf8(file.readAll());
+    };
+
+    QVERIFY(write(logPath, QStringLiteral("first generation")));
+    QVERIFY(LogManager::rollAside(logPath));
+    QVERIFY(!QFile::exists(logPath));
+    QCOMPARE(read(rolledPath), QStringLiteral("first generation"));
+
+    // The next generation replaces the rolled one instead of piling up, so a long session keeps the
+    // folder bounded to the active file plus a single previous generation.
+    QVERIFY(write(logPath, QStringLiteral("second generation")));
+    QVERIFY(LogManager::rollAside(logPath));
+    QCOMPARE(read(rolledPath), QStringLiteral("second generation"));
+    QCOMPARE(QDir(dir.path()).entryList(QDir::Files).size(), 1);
+
+    // A missing active log is not a roll: the previous generation must survive.
+    QVERIFY(!LogManager::rollAside(logPath));
+    QCOMPARE(read(rolledPath), QStringLiteral("second generation"));
 }
 
 void ModeFlowTests::logManager_togglingWhileWorkersEmitKeepsLogFileConsistent() {
