@@ -478,30 +478,84 @@ public:
     QString m_lastSetOutputDeviceId;
 };
 
+namespace {
+// A launchable executable that is not one of the user's applications: the system copy stays where it
+// is and remains blocked by the containment check, while the copy in temp is a legitimate profile path.
+QString makeLaunchableExecutable(const QString& tag) {
+    const QString winDir = qEnvironmentVariable("windir");
+    const QStringList candidates = {QStringLiteral("whoami.exe"), QStringLiteral("find.exe"),
+                                    QStringLiteral("ping.exe")};
+
+    for (const QString& name : candidates) {
+        const QString source = QDir(winDir).filePath(QStringLiteral("System32/") + name);
+        if (!QFile::exists(source)) {
+            continue;
+        }
+
+        const QString target = QDir::tempPath() + QStringLiteral("/modeflow-launcher-%1.exe").arg(tag);
+        QFile::remove(target);
+        if (QFile::copy(source, target)) {
+            return target;
+        }
+    }
+
+    return QString();
+}
+
+ModeFlow::Core::WorkspaceConfig makeProfileForSwitch(const QString& id, const QString& displayName) {
+    ModeFlow::Core::WorkspaceConfig config;
+    config.id = id;
+    config.name = id;
+    config.displayId = displayName;
+    return config;
+}
+
+// Landing on a profile that launches applications is what creates applications to close later.
+ModeFlow::Core::WorkspaceConfig profileWithApps(const QString& id, const QString& displayName, const QString& appPath) {
+    ModeFlow::Core::WorkspaceConfig config = makeProfileForSwitch(id, displayName);
+
+    ModeFlow::Core::AppLaunchConfig app;
+    app.appPath = appPath;
+    app.closeOnExit = true;
+    config.appsToLaunch.append(app);
+
+    return config;
+}
+} // namespace
+
+// Stands in for the operating system, not for the launch policy: the real sequence runs, so profile
+// paths are validated and de-duplicated against what the profile already owns, while no application is
+// started for real and no real window is asked to close.
 class FakeAppLauncherForWS : public ModeFlow::Services::AppLauncher {
     Q_OBJECT
 public:
     using AppLauncher::AppLauncher;
 
-    bool launchSequence(const QString& profileId, const QList<ModeFlow::Core::AppLaunchConfig>& apps) override {
-        m_lastProfileId = profileId;
-        m_lastApps = apps;
-        ++m_launchSequenceCount;
-        if (m_launchShouldFail) {
-            emit errorOccurred(QStringLiteral("launch failed"));
-            return false;
-        }
+    qint64 execute(const QString& path) override {
+        ++m_executeCount;
+        m_lastPath = path;
+        // The test process itself is certainly alive, so the tracked record cannot expire mid-test.
+        return QCoreApplication::applicationPid();
+    }
+
+    bool askProcessToClose(qint64 pid) const override {
+        m_closedPids.append(pid);
         return true;
     }
 
-    void cancelDelayedLaunches(const QString& profileId) override { m_cancelledProfileIds.append(profileId); }
+    void cancelDelayedLaunches(const QString& profileId) override {
+        m_cancelledProfileIds.append(profileId);
+        AppLauncher::cancelDelayedLaunches(profileId);
+    }
 
-    void closeProfileProcesses(const QString& profileId) override { m_closedProfileIds.append(profileId); }
+    void closeProfileProcesses(const QString& profileId) override {
+        m_closedProfileIds.append(profileId);
+        AppLauncher::closeProfileProcesses(profileId);
+    }
 
-    QString m_lastProfileId;
-    QList<ModeFlow::Core::AppLaunchConfig> m_lastApps;
-    int m_launchSequenceCount = 0;
-    bool m_launchShouldFail = false;
+    int m_executeCount = 0;
+    QString m_lastPath;
+    mutable QList<qint64> m_closedPids;
     QStringList m_cancelledProfileIds;
     QStringList m_closedProfileIds;
 };
@@ -1237,7 +1291,6 @@ void ModeFlowTests::workspaceService_appLaunchErrorDegradesStatus() {
     FakeAudioDeviceManagerForWS audio;
     audio.m_defaultOutputDeviceId = QStringLiteral("audio-1");
     FakeAppLauncherForWS launcher;
-    launcher.m_launchShouldFail = true;
 
     ModeFlow::Core::WorkspaceService service(&display, &audio, &launcher);
     QSignalSpy finishedSpy(&service, &ModeFlow::Core::WorkspaceService::configApplyFinished);
@@ -1253,6 +1306,9 @@ void ModeFlowTests::workspaceService_appLaunchErrorDegradesStatus() {
     QCOMPARE(finishedSpy.count(), 1);
     QCOMPARE(finishedSpy.at(0).at(1).value<ModeFlow::Core::WorkspaceService::ApplyStatus>(),
              ModeFlow::Core::WorkspaceService::ApplyStatus::Failed);
+    // The refusal came from the shared validator turning down a path that does not exist, not from a
+    // stand-in that was told to fail.
+    QCOMPARE(launcher.m_executeCount, 0);
 }
 
 void ModeFlowTests::workspaceService_partialSuccessDisplayOnly() {
@@ -1279,16 +1335,6 @@ void ModeFlowTests::workspaceService_partialSuccessDisplayOnly() {
     QCOMPARE(finishedSpy.at(0).at(1).value<ModeFlow::Core::WorkspaceService::ApplyStatus>(),
              ModeFlow::Core::WorkspaceService::ApplyStatus::PartialSuccess);
 }
-
-namespace {
-ModeFlow::Core::WorkspaceConfig makeProfileForSwitch(const QString& id, const QString& displayName) {
-    ModeFlow::Core::WorkspaceConfig config;
-    config.id = id;
-    config.name = id;
-    config.displayId = displayName;
-    return config;
-}
-} // namespace
 
 void ModeFlowTests::workspaceService_outcomeNamesTheStageThatDidNotWork() {
     using ModeFlow::Core::WorkspaceConfig;
@@ -1323,7 +1369,6 @@ void ModeFlowTests::workspaceService_outcomeNamesTheStageThatDidNotWork() {
     secondDisplay.m_currentDisplayKey = QStringLiteral("display-1");
     FakeAudioDeviceManagerForWS secondAudio;
     FakeAppLauncherForWS secondLauncher;
-    secondLauncher.m_launchShouldFail = true;
 
     Service secondService(&secondDisplay, &secondAudio, &secondLauncher);
     QSignalSpy secondFinishedSpy(&secondService, &Service::configApplyFinished);
@@ -1336,6 +1381,7 @@ void ModeFlowTests::workspaceService_outcomeNamesTheStageThatDidNotWork() {
     QCOMPARE(secondFinishedSpy.count(), 1);
     QCOMPARE(secondFinishedSpy.at(0).at(1).value<Service::ApplyStatus>(), Service::ApplyStatus::Failed);
     QVERIFY(secondFinishedSpy.at(0).at(2).value<QString>().contains(QStringLiteral("applications")));
+    QCOMPARE(secondLauncher.m_executeCount, 0);
 }
 
 void ModeFlowTests::workspaceService_failedApplyDoesNotConfirmItselfWithASound() {
@@ -1431,7 +1477,11 @@ void ModeFlowTests::workspaceService_secondRequestIsRefusedWhileSwitching() {
     QSignalSpy errorSpy(&service, &Service::errorOccurred);
 
     const WorkspaceConfig first = makeProfileForSwitch(QStringLiteral("p1"), QStringLiteral("display-2"));
-    const WorkspaceConfig second = makeProfileForSwitch(QStringLiteral("p2"), QStringLiteral("display-3"));
+    // Give the refused request something it would have started, so "nothing launched" is an answer.
+    const QString viewer = makeLaunchableExecutable(QStringLiteral("ws-refused"));
+    QVERIFY(!viewer.isEmpty());
+    WorkspaceConfig second = makeProfileForSwitch(QStringLiteral("p2"), QStringLiteral("display-3"));
+    second.appsToLaunch = {{viewer, 0, false}};
 
     service.applyWorkspaceConfig(first);
     QCOMPARE(startedSpy.count(), 1);
@@ -1441,7 +1491,7 @@ void ModeFlowTests::workspaceService_secondRequestIsRefusedWhileSwitching() {
     QCOMPARE(startedSpy.count(), 1);
     QCOMPARE(finishedSpy.count(), 0);
     QCOMPARE(errorSpy.count(), 1);
-    QCOMPARE(launcher.m_launchSequenceCount, 0);
+    QCOMPARE(launcher.m_executeCount, 0);
 
     display.finishDeferredSwitch(true);
     QTest::qWait(50);
@@ -1455,6 +1505,7 @@ void ModeFlowTests::workspaceService_secondRequestIsRefusedWhileSwitching() {
     QCOMPARE(finishedSpy.at(0).at(1).value<Service::ApplyStatus>(), Service::ApplyStatus::Success);
     QCOMPARE(display.m_lastSwitchTarget, QStringLiteral("display-2"));
     QVERIFY(!service.isSwitchInProgress());
+    QFile::remove(viewer);
 }
 
 void ModeFlowTests::workspaceService_staleDisplayFailureDoesNotFinishNextProfile() {
@@ -1574,23 +1625,6 @@ void ModeFlowTests::workspaceService_directDisplaySwitchBlocksProfileApply() {
     QCOMPARE(display.m_lastSwitchTarget, QStringLiteral("display-3"));
 }
 
-namespace {
-// Landing on a profile that launches applications is what creates applications to close later.
-ModeFlow::Core::WorkspaceConfig profileWithApps(const QString& id, const QString& displayName) {
-    ModeFlow::Core::WorkspaceConfig config;
-    config.id = id;
-    config.name = id;
-    config.displayId = displayName;
-
-    ModeFlow::Core::AppLaunchConfig app;
-    app.appPath = QStringLiteral("C:\\Apps\\editor.exe");
-    app.closeOnExit = true;
-    config.appsToLaunch.append(app);
-
-    return config;
-}
-} // namespace
-
 void ModeFlowTests::workspaceService_closesOutgoingAppsAfterDisplayIsConfirmed() {
     using ModeFlow::Core::WorkspaceConfig;
     using Service = ModeFlow::Core::WorkspaceService;
@@ -1603,9 +1637,11 @@ void ModeFlowTests::workspaceService_closesOutgoingAppsAfterDisplayIsConfirmed()
     Service service(&display, &audio, &launcher);
     service.setDisplayTimeout(5000);
 
-    const WorkspaceConfig incoming = profileWithApps(QStringLiteral("pA"), QStringLiteral("display-1"));
+    const QString editor = makeLaunchableExecutable(QStringLiteral("ws-confirmed"));
+    QVERIFY(!editor.isEmpty());
+    const WorkspaceConfig incoming = profileWithApps(QStringLiteral("pA"), QStringLiteral("display-1"), editor);
     service.applyWorkspaceConfig(incoming);
-    QCOMPARE(launcher.m_launchSequenceCount, 1);
+    QCOMPARE(launcher.m_executeCount, 1);
     QCOMPARE(launcher.m_closedProfileIds.count(), 0);
 
     display.m_deferSwitch = true;
@@ -1624,7 +1660,10 @@ void ModeFlowTests::workspaceService_closesOutgoingAppsAfterDisplayIsConfirmed()
     display.emitDisplaysChanged();
 
     QCOMPARE(launcher.m_closedProfileIds, QStringList{QStringLiteral("pA")});
-    QCOMPARE(launcher.m_launchSequenceCount, 1);
+    QCOMPARE(launcher.m_executeCount, 1);
+    // The application the profile really owns is the one asked to close, by its tracked process.
+    QCOMPARE(launcher.m_closedPids.size(), 1);
+    QFile::remove(editor);
 }
 
 void ModeFlowTests::workspaceService_reappliedProfileKeepsItsOwnApplications() {
@@ -1638,15 +1677,16 @@ void ModeFlowTests::workspaceService_reappliedProfileKeepsItsOwnApplications() {
 
     Service service(&display, &audio, &launcher);
 
-    WorkspaceConfig config = profileWithApps(QStringLiteral("pA"), QStringLiteral("display-1"));
+    const QString editor = makeLaunchableExecutable(QStringLiteral("ws-reapplied"));
+    QVERIFY(!editor.isEmpty());
+    const WorkspaceConfig config = profileWithApps(QStringLiteral("pA"), QStringLiteral("display-1"), editor);
     service.applyWorkspaceConfig(config);
-    QCOMPARE(launcher.m_launchSequenceCount, 1);
+    QCOMPARE(launcher.m_executeCount, 1);
 
-    // Applying the profile that is already current tears nothing down: its scheduled launches stay
-    // scheduled, its windows stay open, and the list still reaches the launcher, which drops what
-    // the profile already owns.
+    // Applying the profile that is already current tears nothing down and starts nothing again: the
+    // list still reaches the launcher, which drops what the profile already owns.
     service.applyWorkspaceConfig(config);
-    QCOMPARE(launcher.m_launchSequenceCount, 2);
+    QCOMPARE(launcher.m_executeCount, 1);
     QVERIFY(launcher.m_cancelledProfileIds.isEmpty());
     QVERIFY(launcher.m_closedProfileIds.isEmpty());
 
@@ -1654,6 +1694,11 @@ void ModeFlowTests::workspaceService_reappliedProfileKeepsItsOwnApplications() {
     service.applyWorkspaceConfig(makeProfileForSwitch(QStringLiteral("pB"), QStringLiteral("display-1")));
     QCOMPARE(launcher.m_cancelledProfileIds, QStringList{QStringLiteral("pA")});
     QCOMPARE(launcher.m_closedProfileIds, QStringList{QStringLiteral("pA")});
+
+    // Coming back to the profile starts the application again, because the switch forgot it.
+    service.applyWorkspaceConfig(config);
+    QCOMPARE(launcher.m_executeCount, 2);
+    QFile::remove(editor);
 }
 
 void ModeFlowTests::workspaceService_failedDisplaySwitchKeepsOutgoingAppsOpen() {
@@ -1668,7 +1713,9 @@ void ModeFlowTests::workspaceService_failedDisplaySwitchKeepsOutgoingAppsOpen() 
     Service service(&display, &audio, &launcher);
     service.setDisplayTimeout(5000);
 
-    const WorkspaceConfig incoming = profileWithApps(QStringLiteral("pA"), QStringLiteral("display-1"));
+    const QString editor = makeLaunchableExecutable(QStringLiteral("ws-failedswitch"));
+    QVERIFY(!editor.isEmpty());
+    const WorkspaceConfig incoming = profileWithApps(QStringLiteral("pA"), QStringLiteral("display-1"), editor);
     service.applyWorkspaceConfig(incoming);
 
     display.m_switchShouldFail = true;
@@ -1679,6 +1726,7 @@ void ModeFlowTests::workspaceService_failedDisplaySwitchKeepsOutgoingAppsOpen() 
     // The user is still on the old display, so nothing of profile A may be closed.
     QCOMPARE(launcher.m_closedProfileIds.count(), 0);
     QCOMPARE(display.m_lastSwitchTarget, QStringLiteral("display-2"));
+    QFile::remove(editor);
 }
 
 void ModeFlowTests::workspaceService_displayTimeoutKeepsOutgoingAppsOpen() {
@@ -1693,9 +1741,11 @@ void ModeFlowTests::workspaceService_displayTimeoutKeepsOutgoingAppsOpen() {
 
     Service service(&display, &audio, &launcher);
 
-    const WorkspaceConfig incoming = profileWithApps(QStringLiteral("pA"), QStringLiteral("display-1"));
+    const QString editor = makeLaunchableExecutable(QStringLiteral("ws-timeout"));
+    QVERIFY(!editor.isEmpty());
+    const WorkspaceConfig incoming = profileWithApps(QStringLiteral("pA"), QStringLiteral("display-1"), editor);
     service.applyWorkspaceConfig(incoming);
-    QCOMPARE(launcher.m_launchSequenceCount, 1);
+    QCOMPARE(launcher.m_executeCount, 1);
 
     service.setDisplayTimeout(30);
     const WorkspaceConfig next = makeProfileForSwitch(QStringLiteral("pB"), QStringLiteral("display-2"));
@@ -1704,6 +1754,8 @@ void ModeFlowTests::workspaceService_displayTimeoutKeepsOutgoingAppsOpen() {
 
     // A switch that never reported back is not a confirmed move, so profile A keeps its windows.
     QCOMPARE(launcher.m_closedProfileIds.count(), 0);
+    QVERIFY(launcher.m_closedPids.isEmpty());
+    QFile::remove(editor);
 }
 
 void ModeFlowTests::systemUtils_heldProcessHandleProvesTheProcessIsAlive() {
@@ -1720,51 +1772,6 @@ void ModeFlowTests::systemUtils_heldProcessHandleProvesTheProcessIsAlive() {
     QVERIFY(SystemUtils::openProcessHandle(static_cast<qint64>(0x7FFFFFFF)) == nullptr);
     QVERIFY(!SystemUtils::isProcessRunning(nullptr));
 }
-
-namespace {
-// A launchable executable that is not one of the user's applications: the system copy stays where it
-// is and remains blocked by the containment check, while the copy in temp is a legitimate profile path.
-QString makeLaunchableExecutable(const QString& tag) {
-    const QString winDir = qEnvironmentVariable("windir");
-    const QStringList candidates = {QStringLiteral("whoami.exe"), QStringLiteral("find.exe"),
-                                    QStringLiteral("ping.exe")};
-
-    for (const QString& name : candidates) {
-        const QString source = QDir(winDir).filePath(QStringLiteral("System32/") + name);
-        if (!QFile::exists(source)) {
-            continue;
-        }
-
-        const QString target = QDir::tempPath() + QStringLiteral("/modeflow-launcher-%1.exe").arg(tag);
-        QFile::remove(target);
-        if (QFile::copy(source, target)) {
-            return target;
-        }
-    }
-
-    return QString();
-}
-
-// Stands in for a launched application without spawning one: the test process is certainly alive
-// while its own record is tracked, so the "already running" answer cannot drift with timing.
-class CountingAppLauncher : public ModeFlow::Services::AppLauncher {
-public:
-    qint64 execute(const QString& path) override {
-        ++m_executeCount;
-        m_lastPath = path;
-        return QCoreApplication::applicationPid();
-    }
-
-    bool askProcessToClose(qint64 pid) const override {
-        m_closedPids.append(pid);
-        return true;
-    }
-
-    int m_executeCount = 0;
-    QString m_lastPath;
-    mutable QList<qint64> m_closedPids;
-};
-} // namespace
 
 void ModeFlowTests::appLauncher_sequenceSkipsEmptyPaths() {
     ModeFlow::Services::AppLauncher launcher;
@@ -1930,7 +1937,7 @@ void ModeFlowTests::appLauncher_runningApplicationIsNotStartedTwice() {
     AppLaunchConfig missing;
     missing.appPath = viewer;
 
-    CountingAppLauncher launcher;
+    FakeAppLauncherForWS launcher;
     QVERIFY(launcher.launchSequence(QStringLiteral("p1"), {owned}));
     QCOMPARE(launcher.m_executeCount, 1);
     QCOMPARE(launcher.activeLaunchKeys(QStringLiteral("p1")).size(), 1);
@@ -1970,7 +1977,7 @@ void ModeFlowTests::appLauncher_leavingAProfileClosesOnlyTheApplicationsItOwns()
     AppLaunchConfig guest;
     guest.appPath = visitor;
 
-    CountingAppLauncher launcher;
+    FakeAppLauncherForWS launcher;
     QVERIFY(launcher.launchSequence(QStringLiteral("p1"), {owned, guest}));
     QCOMPARE(launcher.activeLaunchKeys(QStringLiteral("p1")).size(), 2);
 
