@@ -72,6 +72,18 @@
 
 namespace {
 
+/// Types straight into the key-sequence widget so no window has to be shown and the user's
+/// foreground window keeps focus.
+class ChordTypingEdit : public ModeFlow::Gui::HotkeyEdit {
+public:
+    using ModeFlow::Gui::HotkeyEdit::HotkeyEdit;
+
+    void type(Qt::Key key, Qt::KeyboardModifiers modifiers) {
+        QKeyEvent event(QEvent::KeyPress, key, modifiers);
+        keyPressEvent(&event);
+    }
+};
+
 class FakeStyleManager : public ModeFlow::Core::IStyleManager {
 public:
     void applyToWindow(QWidget* window) override { Q_UNUSED(window); }
@@ -626,6 +638,9 @@ private slots:
     void commandLineBuilder_generatesCorrectArguments();
     void cliParser_parsesArgumentsCorrectly();
     void cliParser_finishesHelpAndBadArgumentsWithoutTouchingTheTask();
+    void hotkeyEdit_replacesTheChordInsteadOfAppendingASecondOne();
+    void singleChord_keepsTheChordQHotkeyIsAbleToBind();
+    void workspaceConfig_fromJsonReducesAMultiChordImport();
     void configManager_isThreadSafeAndConsistent();
     void configManager_skippedVersion_persistsCorrectly();
 
@@ -936,6 +951,48 @@ void ModeFlowTests::cliParser_finishesHelpAndBadArgumentsWithoutTouchingTheTask(
         // The safety property: no case below may ask main() to create or delete a scheduled task.
         QCOMPARE(result.mode, CliParser::RunMode::NormalGui);
     }
+}
+
+void ModeFlowTests::hotkeyEdit_replacesTheChordInsteadOfAppendingASecondOne() {
+    ChordTypingEdit edit;
+
+    edit.type(Qt::Key_A, Qt::ControlModifier);
+    QCOMPARE(edit.keySequence().count(), 1);
+    QCOMPARE(edit.keySequence(), QKeySequence(QStringLiteral("Ctrl+A")));
+
+    // A global hotkey binds exactly one chord, so the next chord replaces the value instead of
+    // turning the field into "Ctrl+A, Ctrl+B" where only the first half would ever work.
+    edit.type(Qt::Key_B, Qt::ControlModifier);
+    QCOMPARE(edit.keySequence().count(), 1);
+    QCOMPARE(edit.keySequence(), QKeySequence(QStringLiteral("Ctrl+B")));
+
+    edit.type(Qt::Key_C, Qt::ControlModifier | Qt::ShiftModifier);
+    QCOMPARE(edit.keySequence().count(), 1);
+    QCOMPARE(edit.keySequence(), QKeySequence(QStringLiteral("Ctrl+Shift+C")));
+}
+
+void ModeFlowTests::singleChord_keepsTheChordQHotkeyIsAbleToBind() {
+    using ModeFlow::Core::singleChord;
+
+    const QKeySequence chords(QStringLiteral("Ctrl+A, Ctrl+B"));
+    QCOMPARE(chords.count(), 2);
+
+    QCOMPARE(singleChord(QKeySequence()), QKeySequence());
+    QCOMPARE(singleChord(QKeySequence(QStringLiteral("Ctrl+A"))), QKeySequence(QStringLiteral("Ctrl+A")));
+    // QHotkey binds the first sequence and ignores the rest, so reducing to the first chord keeps
+    // the stored value equal to what was actually registered before.
+    QCOMPARE(singleChord(chords), QKeySequence(QStringLiteral("Ctrl+A")));
+}
+
+void ModeFlowTests::workspaceConfig_fromJsonReducesAMultiChordImport() {
+    QJsonObject obj;
+    obj[QStringLiteral("id")] = QStringLiteral("profile-1");
+    obj[QStringLiteral("hotkey")] = QKeySequence(QStringLiteral("Ctrl+A, Ctrl+B")).toString(QKeySequence::PortableText);
+
+    const ModeFlow::Core::WorkspaceConfig cfg = ModeFlow::Core::WorkspaceConfig::fromJson(obj);
+
+    QCOMPARE(cfg.hotkey.count(), 1);
+    QCOMPARE(cfg.hotkey, QKeySequence(QStringLiteral("Ctrl+A")));
 }
 
 void ModeFlowTests::configManager_isThreadSafeAndConsistent() {

@@ -81,7 +81,7 @@ bool ConfigManager::loadConfig() {
     }
 
     auto hkStr = s.value(u"nextProfileHotkey"_sv).toString();
-    snapshot.nextProfileHotkey = QKeySequence(hkStr, QKeySequence::PortableText);
+    snapshot.nextProfileHotkey = singleChord(QKeySequence(hkStr, QKeySequence::PortableText));
     snapshot.language =
         LocalizationManager::normalizedLocale(s.value(u"language"_sv, QLocale::system().name()).toString());
     snapshot.theme = static_cast<Theme>(s.value(u"theme"_sv, static_cast<int>(Theme::Light)).toInt());

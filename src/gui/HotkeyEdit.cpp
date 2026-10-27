@@ -50,6 +50,13 @@ void HotkeyEdit::keyPressEvent(QKeyEvent* event) {
     }
 
     QKeySequenceEdit::keyPressEvent(event);
+
+    // The base widget happily appends chords up to a four-sequence shortcut, but a global hotkey
+    // is a single chord. The newest one wins so the field can be re-typed without clearing it.
+    const QKeySequence typed = keySequence();
+    if (typed.count() > 1) {
+        setKeySequence(QKeySequence(typed[typed.count() - 1]));
+    }
 }
 
 } // namespace ModeFlow::Gui

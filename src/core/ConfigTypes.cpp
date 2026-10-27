@@ -7,6 +7,12 @@ using namespace Qt::StringLiterals;
 
 namespace ModeFlow::Core {
 
+QKeySequence singleChord(const QKeySequence& sequence) {
+    if (sequence.count() <= 1)
+        return sequence;
+    return QKeySequence(sequence[0]);
+}
+
 QJsonObject AppLaunchConfig::toJson() const {
     QJsonObject obj;
     obj[u"appPath"_s] = appPath;
@@ -48,7 +54,7 @@ WorkspaceConfig WorkspaceConfig::fromJson(const QJsonObject& obj) {
     cfg.id = obj[u"id"_s].toString();
     cfg.name = obj[u"name"_s].toString(u"Workspace"_s);
     cfg.iconSymbol = obj[u"iconSymbol"_s].toString();
-    cfg.hotkey = QKeySequence(obj[u"hotkey"_s].toString(), QKeySequence::PortableText);
+    cfg.hotkey = singleChord(QKeySequence(obj[u"hotkey"_s].toString(), QKeySequence::PortableText));
     cfg.displayId = obj[u"displayId"_s].toString();
     cfg.audioId = obj[u"audioId"_s].toString();
     cfg.skipInCycle = obj[u"skipInCycle"_s].toBool(false);

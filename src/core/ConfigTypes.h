@@ -7,6 +7,10 @@
 
 namespace ModeFlow::Core {
 
+/// A global shortcut can only ever be one chord: QHotkey registers the first sequence of a key
+/// sequence and ignores the rest, so stored and typed values are reduced to what gets bound.
+QKeySequence singleChord(const QKeySequence& sequence);
+
 struct DeviceEntry {
     QString id;
     QString name;
