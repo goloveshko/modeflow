@@ -1,8 +1,9 @@
-﻿#include "TaskScheduler.h"
+#include "TaskScheduler.h"
 
 #include <QCoreApplication>
 #include <QDir>
 
+#include "ComInitGuard.h"
 #include "Constants.h"
 #include "Logging.h"
 
@@ -39,6 +40,30 @@ void fillDefaults(QString& taskName, QString& exePath) {
         exePath = QCoreApplication::applicationFilePath();
     }
 }
+
+// A dropped HRESULT leaves a task registered without the settings the caller believes it has.
+[[nodiscard]] bool require(HRESULT hr, const char* step) {
+    if (FAILED(hr)) {
+        qCWarning(lcUtil) << step << "failed:" << hresultToString(hr);
+        return false;
+    }
+    return true;
+}
+
+// Task Scheduler is a COM service, so the service, folder and task handles are acquired
+// through one path that reports which step refused.
+bool connectTaskService(ComPtr<ITaskService>& pService, ComPtr<ITaskFolder>& pRootFolder) {
+    if (!require(CoCreateInstance(CLSID_TaskScheduler, nullptr, CLSCTX_INPROC_SERVER, IID_PPV_ARGS(&pService)),
+                 "CoCreateInstance(TaskScheduler)")) {
+        return false;
+    }
+
+    if (!require(pService->Connect(_variant_t(), _variant_t(), _variant_t(), _variant_t()), "Connect")) {
+        return false;
+    }
+
+    return require(pService->GetFolder(_bstr_t(L"\\"), &pRootFolder), "GetFolder");
+}
 } // namespace
 
 bool TaskScheduler::createTaskAtLogon(const QString& arguments, int delaySeconds, bool runHighest, QString taskName,
@@ -57,6 +82,12 @@ bool TaskScheduler::createTaskAtLogon(const QString& arguments, int delaySeconds
 
     fillDefaults(taskName, exePath);
 
+    ComInitGuard comGuard(ComInitGuard::Apartment::MultiThreaded);
+    if (!comGuard.isOk()) {
+        qCWarning(lcUtil) << "COM is unavailable, the autostart task was left untouched";
+        return false;
+    }
+
     ComPtr<ITaskService> pService;
     ComPtr<ITaskFolder> pRootFolder;
     ComPtr<ITaskDefinition> pTask;
@@ -70,93 +101,72 @@ bool TaskScheduler::createTaskAtLogon(const QString& arguments, int delaySeconds
     ComPtr<IPrincipal> pPrincipal;
     ComPtr<IRegisteredTask> pRegisteredTask;
 
-    HRESULT hr = CoCreateInstance(CLSID_TaskScheduler, nullptr, CLSCTX_INPROC_SERVER, IID_PPV_ARGS(&pService));
-    if (FAILED(hr)) {
-        qCWarning(lcUtil) << "CoCreateInstance failed:" << hresultToString(hr);
+    if (!connectTaskService(pService, pRootFolder)) {
         return false;
     }
 
-    hr = pService->Connect(_variant_t(), _variant_t(), _variant_t(), _variant_t());
-    if (FAILED(hr)) {
-        qCWarning(lcUtil) << "Connect failed:" << hresultToString(hr);
+    // Registration uses TASK_CREATE_OR_UPDATE, so an existing task is replaced only once the
+    // new definition is complete. Deleting it first would leave no autostart on any later failure.
+    if (!require(pService->NewTask(0, &pTask), "NewTask")) {
         return false;
     }
 
-    hr = pService->GetFolder(_bstr_t(L"\\"), &pRootFolder);
-    if (FAILED(hr)) {
-        qCWarning(lcUtil) << "GetFolder failed:" << hresultToString(hr);
+    if (!require(pTask->get_Principal(&pPrincipal), "get_Principal") ||
+        !require(pPrincipal->put_RunLevel(runHighest ? TASK_RUNLEVEL_HIGHEST : TASK_RUNLEVEL_LUA), "put_RunLevel")) {
         return false;
     }
 
-    // Remove existing (Ignore failure if it doesn't exist)
-    hr = pRootFolder->DeleteTask(_bstr_t(taskName.toStdWString().c_str()), 0);
-
-    if (FAILED(hr) && hr != HRESULT_FROM_WIN32(ERROR_FILE_NOT_FOUND)) {
-        // ERROR_ACCESS_DENIED (0x80070005)
-        qCWarning(lcUtil) << "Critical error deleting task:" << hresultToString(hr);
+    if (!require(pTask->get_Settings(&pSettings), "get_Settings") ||
+        !require(pSettings->put_StartWhenAvailable(VARIANT_TRUE), "put_StartWhenAvailable") ||
+        !require(pSettings->put_DisallowStartIfOnBatteries(VARIANT_FALSE), "put_DisallowStartIfOnBatteries") ||
+        !require(pSettings->put_StopIfGoingOnBatteries(VARIANT_FALSE), "put_StopIfGoingOnBatteries") ||
+        !require(pSettings->put_ExecutionTimeLimit(_bstr_t(L"PT0S")), "put_ExecutionTimeLimit") ||
+        !require(pSettings->put_Priority(5), "put_Priority")) {
         return false;
     }
 
-    hr = pService->NewTask(0, &pTask);
-    if (FAILED(hr)) {
-        qCWarning(lcUtil) << "NewTask failed:" << hresultToString(hr);
+    if (!require(pTask->get_Triggers(&pTriggerCollection), "get_Triggers") ||
+        !require(pTriggerCollection->Create(TASK_TRIGGER_LOGON, &pTrigger), "Create(logon trigger)") ||
+        !require(pTrigger.As(&pLogonTrigger), "as ILogonTrigger") ||
+        !require(pLogonTrigger->put_Id(_bstr_t(L"LogonTrigger")), "put_Id")) {
         return false;
     }
 
-    if (SUCCEEDED(pTask->get_Principal(&pPrincipal))) {
-        if (runHighest) {
-            pPrincipal->put_RunLevel(TASK_RUNLEVEL_HIGHEST);
-        } else {
-            pPrincipal->put_RunLevel(TASK_RUNLEVEL_LUA);
+    // A delay is an ISO 8601 duration (PT#S); the settings UI only offers up to 30 seconds.
+    if (delaySeconds > 0) {
+        const int clampedDelay = std::clamp(delaySeconds, 1, 30);
+        const QString delayStr = u"PT%1S"_s.arg(clampedDelay);
+        if (!require(pLogonTrigger->put_Delay(_bstr_t(delayStr.toStdWString().c_str())), "put_Delay")) {
+            return false;
         }
+        qCDebug(lcUtil) << "Setting logon delay to" << clampedDelay << "seconds.";
+    } else if (!require(pLogonTrigger->put_Delay(nullptr), "put_Delay")) {
+        return false;
     }
 
-    if (SUCCEEDED(pTask->get_Settings(&pSettings))) {
-        pSettings->put_StartWhenAvailable(VARIANT_TRUE);
-        pSettings->put_DisallowStartIfOnBatteries(VARIANT_FALSE);
-        pSettings->put_StopIfGoingOnBatteries(VARIANT_FALSE);
-        pSettings->put_ExecutionTimeLimit(_bstr_t(L"PT0S"));
-        pSettings->put_Priority(5);
+    if (!require(pTask->get_Actions(&pActionCollection), "get_Actions") ||
+        !require(pActionCollection->Create(TASK_ACTION_EXEC, &pAction), "Create(exec action)") ||
+        !require(pAction.As(&pExecAction), "as IExecAction")) {
+        return false;
     }
 
-    if (SUCCEEDED(pTask->get_Triggers(&pTriggerCollection))) {
-        if (SUCCEEDED(pTriggerCollection->Create(TASK_TRIGGER_LOGON, &pTrigger))) {
-            if (SUCCEEDED(pTrigger.As(&pLogonTrigger))) {
-                pLogonTrigger->put_Id(_bstr_t(L"LogonTrigger"));
-
-                // If a delay is specified, format it as an ISO 8601 duration (PT#S)
-                if (delaySeconds > 0) {
-                    // Safety clamp: 1 to 30 seconds
-                    int clampedDelay = std::clamp(delaySeconds, 1, 30);
-                    QString delayStr = u"PT%1S"_s.arg(clampedDelay);
-                    pLogonTrigger->put_Delay(_bstr_t(delayStr.toStdWString().c_str()));
-
-                    qCDebug(lcUtil) << "Setting logon delay to" << clampedDelay << "seconds.";
-                } else {
-                    pLogonTrigger->put_Delay(nullptr); // No delay
-                }
-            }
-        }
+    if (!require(pExecAction->put_Path(_bstr_t(QDir::toNativeSeparators(exePath).toStdWString().c_str())),
+                 "put_Path") ||
+        !require(pExecAction->put_Arguments(_bstr_t(arguments.toStdWString().c_str())), "put_Arguments")) {
+        return false;
     }
 
-    if (SUCCEEDED(pTask->get_Actions(&pActionCollection))) {
-        if (SUCCEEDED(pActionCollection->Create(TASK_ACTION_EXEC, &pAction))) {
-            if (SUCCEEDED(pAction.As(&pExecAction))) {
-                pExecAction->put_Path(_bstr_t(QDir::toNativeSeparators(exePath).toStdWString().c_str()));
-                pExecAction->put_Arguments(_bstr_t(arguments.toStdWString().c_str()));
-
-                QString workingDir = QFileInfo(exePath).absolutePath();
-                pExecAction->put_WorkingDirectory(_bstr_t(QDir::toNativeSeparators(workingDir).toStdWString().c_str()));
-            }
-        }
+    const QString workingDir = QFileInfo(exePath).absolutePath();
+    if (!require(
+            pExecAction->put_WorkingDirectory(_bstr_t(QDir::toNativeSeparators(workingDir).toStdWString().c_str())),
+            "put_WorkingDirectory")) {
+        return false;
     }
 
-    hr = pRootFolder->RegisterTaskDefinition(_bstr_t(taskName.toStdWString().c_str()), pTask.Get(),
-                                             TASK_CREATE_OR_UPDATE, _variant_t(), _variant_t(),
-                                             TASK_LOGON_INTERACTIVE_TOKEN, _variant_t(L""), &pRegisteredTask);
-
-    if (FAILED(hr)) {
-        qCWarning(lcUtil) << "RegisterTaskDefinition failed:" << hresultToString(hr);
+    if (!require(pRootFolder->RegisterTaskDefinition(_bstr_t(taskName.toStdWString().c_str()), pTask.Get(),
+                                                     TASK_CREATE_OR_UPDATE, _variant_t(), _variant_t(),
+                                                     TASK_LOGON_INTERACTIVE_TOKEN, _variant_t(L""), &pRegisteredTask),
+                 "RegisterTaskDefinition")) {
         return false;
     }
 
@@ -168,28 +178,20 @@ bool TaskScheduler::removeTask(QString taskName) {
     QString exePath;
     fillDefaults(taskName, exePath);
 
+    ComInitGuard comGuard(ComInitGuard::Apartment::MultiThreaded);
+    if (!comGuard.isOk()) {
+        qCWarning(lcUtil) << "COM is unavailable, the autostart task was left untouched";
+        return false;
+    }
+
     ComPtr<ITaskService> pService;
     ComPtr<ITaskFolder> pRootFolder;
 
-    HRESULT hr = CoCreateInstance(CLSID_TaskScheduler, nullptr, CLSCTX_INPROC_SERVER, IID_PPV_ARGS(&pService));
-    if (FAILED(hr)) {
-        qCWarning(lcUtil) << "CoCreateInstance failed:" << hresultToString(hr);
+    if (!connectTaskService(pService, pRootFolder)) {
         return false;
     }
 
-    hr = pService->Connect(_variant_t(), _variant_t(), _variant_t(), _variant_t());
-    if (FAILED(hr)) {
-        qCWarning(lcUtil) << "Connect failed:" << hresultToString(hr);
-        return false;
-    }
-
-    hr = pService->GetFolder(_bstr_t(L"\\"), &pRootFolder);
-    if (FAILED(hr)) {
-        qCWarning(lcUtil) << "GetFolder failed:" << hresultToString(hr);
-        return false;
-    }
-
-    hr = pRootFolder->DeleteTask(_bstr_t(taskName.toStdWString().c_str()), 0);
+    const HRESULT hr = pRootFolder->DeleteTask(_bstr_t(taskName.toStdWString().c_str()), 0);
     if (FAILED(hr)) {
         if (hr == HRESULT_FROM_WIN32(ERROR_FILE_NOT_FOUND)) {
             qCDebug(lcUtil) << "Task already absent:" << taskName;
@@ -206,75 +208,60 @@ bool TaskScheduler::removeTask(QString taskName) {
 bool TaskScheduler::isTaskRegistered(QString taskName, QString exePath) {
     fillDefaults(taskName, exePath);
 
+    ComInitGuard comGuard(ComInitGuard::Apartment::MultiThreaded);
+    if (!comGuard.isOk()) {
+        qCWarning(lcUtil) << "COM is unavailable, the autostart state could not be read";
+        return false;
+    }
+
     ComPtr<ITaskService> pService;
     ComPtr<ITaskFolder> pRootFolder;
     ComPtr<IRegisteredTask> pRegisteredTask;
 
-    HRESULT hr = CoCreateInstance(CLSID_TaskScheduler, nullptr, CLSCTX_INPROC_SERVER, IID_PPV_ARGS(&pService));
-    if (FAILED(hr)) {
-        qCWarning(lcUtil) << "CoCreateInstance failed:" << hresultToString(hr);
+    if (!connectTaskService(pService, pRootFolder)) {
         return false;
     }
 
-    hr = pService->Connect(_variant_t(), _variant_t(), _variant_t(), _variant_t());
-    if (FAILED(hr)) {
-        qCWarning(lcUtil) << "Connect failed:" << hresultToString(hr);
-        return false;
-    }
-
-    hr = pService->GetFolder(_bstr_t(L"\\"), &pRootFolder);
-    if (FAILED(hr)) {
-        qCWarning(lcUtil) << "GetFolder failed:" << hresultToString(hr);
-        return false;
-    }
-
-    hr = pRootFolder->GetTask(_bstr_t(taskName.toStdWString().c_str()), &pRegisteredTask);
-    if (FAILED(hr)) {
-        // Task not found is not an error in this context
+    const HRESULT found = pRootFolder->GetTask(_bstr_t(taskName.toStdWString().c_str()), &pRegisteredTask);
+    if (FAILED(found)) {
+        // A missing task is a real answer; anything else means the state could not be read.
+        if (found != HRESULT_FROM_WIN32(ERROR_FILE_NOT_FOUND)) {
+            qCWarning(lcUtil) << "GetTask failed:" << hresultToString(found);
+        }
         return false;
     }
 
     ComPtr<ITaskDefinition> pDefinition;
-    hr = pRegisteredTask->get_Definition(&pDefinition);
-    if (FAILED(hr)) {
-        qCWarning(lcUtil) << "Get definition failed:" << hresultToString(hr);
+    if (!require(pRegisteredTask->get_Definition(&pDefinition), "get_Definition")) {
         return false;
     }
 
     ComPtr<IActionCollection> pActions;
-    hr = pDefinition->get_Actions(&pActions);
-    if (FAILED(hr)) {
-        qCWarning(lcUtil) << "Get actions failed:" << hresultToString(hr);
+    if (!require(pDefinition->get_Actions(&pActions), "get_Actions")) {
         return false;
     }
 
-    // Retrieve the first action (Note: Task Scheduler uses 1-based indexing)
+    // Task Scheduler uses 1-based indexing for actions.
     ComPtr<IAction> pAction;
-    hr = pActions->get_Item(1, &pAction);
-    if (FAILED(hr)) {
-        qCWarning(lcUtil) << "Get item failed:" << hresultToString(hr);
+    if (!require(pActions->get_Item(1, &pAction), "get_Item")) {
         return false;
     }
 
     ComPtr<IExecAction> pExecAction;
-    hr = pAction.As(&pExecAction);
-    if (FAILED(hr)) {
-        qCWarning(lcUtil) << "As<IExecAction> failed:" << hresultToString(hr);
+    if (!require(pAction.As(&pExecAction), "as IExecAction")) {
         return false;
     }
 
     BSTR rawPath = nullptr;
-    if (SUCCEEDED(pExecAction->get_Path(&rawPath))) {
-        _bstr_t pathWrapper(rawPath, false);
-        QString registeredPath = QString::fromWCharArray(static_cast<const wchar_t*>(pathWrapper));
-
-        return QString::compare(QDir::toNativeSeparators(exePath), QDir::toNativeSeparators(registeredPath),
-                                Qt::CaseInsensitive) == 0;
-    } else {
-        qCWarning(lcUtil) << "Get path failed:" << hresultToString(hr);
+    if (!require(pExecAction->get_Path(&rawPath), "get_Path")) {
+        return false;
     }
 
-    return false;
+    _bstr_t pathWrapper(rawPath, false);
+    const QString registeredPath = QString::fromWCharArray(static_cast<const wchar_t*>(pathWrapper));
+
+    return QString::compare(QDir::toNativeSeparators(exePath), QDir::toNativeSeparators(registeredPath),
+                            Qt::CaseInsensitive) == 0;
 }
 
 bool TaskScheduler::isAdmin() {
