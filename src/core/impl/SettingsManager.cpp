@@ -34,10 +34,6 @@ void SettingsManager::setLanguagePreference(const QString& locale) {
     m_configManager->setLanguage(locale);
 }
 
-bool SettingsManager::autostartEnabled() const {
-    return m_autostartManager->isAutostartEnabled();
-}
-
 QFuture<bool> SettingsManager::autostartEnabledAsync() const {
     return m_autostartManager->checkIsRegisteredAsync();
 }

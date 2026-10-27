@@ -1,9 +1,11 @@
 ﻿#include <QCheckBox>
 #include <QComboBox>
+#include <QDialogButtonBox>
 #include <QGroupBox>
 #include <QLineEdit>
 #include <QMap>
 #include <QMessageBox>
+#include <QPromise>
 #include <QPushButton>
 #include <QSignalSpy>
 #include <QSpinBox>
@@ -222,10 +224,32 @@ public:
     void setLanguage(const QString& locale) override { languageCode = locale; }
     void setLanguagePreference(const QString& locale) override { languageCode = locale; }
 
-    bool autostartEnabled() const override { return autostartEnabledValue; }
-
     QFuture<bool> autostartEnabledAsync() const override {
+        ++autostartCheckCalls;
+
+        if (m_deferAutostartCheck) {
+            // The test decides when the Task Scheduler answer arrives, so the user can already be
+            // editing the form while the dialog waits for it.
+            m_deferAutostartCheck = false;
+            auto promise = std::make_unique<QPromise<bool>>();
+            promise->start();
+            m_deferredAutostartFuture = promise->future();
+            m_pendingAutostartCheck = std::move(promise);
+            return m_deferredAutostartFuture;
+        }
+
         return QtFuture::makeReadyValueFuture(autostartEnabledValue);
+    }
+
+    void deferAutostartCheck() { m_deferAutostartCheck = true; }
+
+    void finishDeferredAutostartCheck(bool registered) {
+        if (!m_pendingAutostartCheck) {
+            return;
+        }
+        m_pendingAutostartCheck->addResult(registered);
+        m_pendingAutostartCheck->finish();
+        m_pendingAutostartCheck.reset();
     }
 
     QFuture<bool> requestAutostartToggleAsync(bool enabled, int delay, bool enableLogging = false) override {
@@ -304,6 +328,10 @@ public:
 
     QString languageCode = QStringLiteral("en_US");
     bool autostartEnabledValue = false;
+    mutable int autostartCheckCalls = 0;
+    mutable bool m_deferAutostartCheck = false;
+    mutable std::unique_ptr<QPromise<bool>> m_pendingAutostartCheck;
+    mutable QFuture<bool> m_deferredAutostartFuture;
     int autostartDelaySeconds = 5;
     bool audioConfirmationEnabled = true;
     bool autoUpdateEnabledValue = true;
@@ -593,6 +621,7 @@ private slots:
     void winKeyTranslator_translatesCorrectly();
 
     void settingsDialog_hotkeyConflict_showsWarningViaDialogManager();
+    void settingsDialog_keepsEditsMadeWhileAutostartIsBeingChecked();
     void profileEditor_keepsBindingOfADeviceThatIsNotDetected();
     void profileEditor_renamesAProfileWithAManualIcon();
     void profileEditor_followsTheSuggestedIconWhileItIsAutomatic();
@@ -1665,6 +1694,46 @@ void ModeFlowTests::settingsDialog_hotkeyConflict_showsWarningViaDialogManager()
 
     // FakeDialogManager should be called if there's any conflict or validation warning
     QVERIFY(dialog.result() == 0);
+}
+
+void ModeFlowTests::settingsDialog_keepsEditsMadeWhileAutostartIsBeingChecked() {
+    FakeSettingsManager settingsManager;
+    FakeWorkspaceManager workspaceManager;
+    FakeStyleManager styleManager;
+    FakeDialogManager dialogManager;
+
+    // The logon task exists, but the answer is held back until the test resolves it.
+    settingsManager.autostartEnabledValue = true;
+    settingsManager.deferAutostartCheck();
+
+    ModeFlow::Gui::SettingsDialog dialog(&dialogManager, &settingsManager, &workspaceManager, &styleManager);
+    QCoreApplication::processEvents();
+
+    // The check runs exactly once and only in the background: opening the dialog must not query
+    // Task Scheduler on the GUI thread.
+    QCOMPARE(settingsManager.autostartCheckCalls, 1);
+
+    auto* buttonBox = dialog.findChild<QDialogButtonBox*>();
+    QVERIFY(buttonBox);
+    auto* saveButton = buttonBox->button(QDialogButtonBox::Save);
+    QVERIFY(saveButton);
+    QVERIFY(!saveButton->isEnabled());
+
+    auto* audioCheck = dialog.findChild<QCheckBox*>("checkAudioConfirmation");
+    QVERIFY(audioCheck);
+    audioCheck->toggle();
+    QVERIFY(saveButton->isEnabled());
+
+    settingsManager.finishDeferredAutostartCheck(true);
+    QCoreApplication::processEvents();
+
+    // The late answer is allowed to correct only the field it owns. Re-reading the whole form here would
+    // turn the edit above into part of the saved baseline and hide Save again.
+    auto* autostartCheck = dialog.findChild<QCheckBox*>("checkAutostart");
+    QVERIFY(autostartCheck);
+    QVERIFY(autostartCheck->isEnabled());
+    QVERIFY(autostartCheck->isChecked());
+    QVERIFY(saveButton->isEnabled());
 }
 
 void ModeFlowTests::updateService_versionComparison() {

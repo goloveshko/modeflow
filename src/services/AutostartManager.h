@@ -14,7 +14,5 @@ public:
 
     QFuture<bool> checkIsRegisteredAsync();
     QFuture<bool> toggleAsync(bool checked, int delaySeconds, bool enableLogging = false);
-
-    bool isAutostartEnabled() const;
 };
 } // namespace ModeFlow::Services

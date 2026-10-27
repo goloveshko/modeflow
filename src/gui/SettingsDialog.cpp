@@ -32,13 +32,20 @@ SettingsDialog::SettingsDialog(Core::IDialogManager* dialogManager, Core::ISetti
 
     loadSettings();
     setupConnections();
+
+    // The baseline has to exist before the user can edit anything, so it is taken here and not after the
+    // background autostart check reports back.
+    captureInitialState();
+
     QTimer::singleShot(0, this, &SettingsDialog::initializeUiState);
 }
 
 SettingsDialog::~SettingsDialog() = default;
 
 void SettingsDialog::loadSettings() {
-    ui->checkAutostart->setChecked(m_settingsManager->autostartEnabled());
+    // The real state of the logon task is only known after autostartEnabledAsync(); querying Task
+    // Scheduler here would block the dialog while it opens.
+    ui->checkAutostart->setChecked(false);
     ui->spinLogonDelay->setValue(m_settingsManager->autostartDelay());
 
     setupStartupCombo();
@@ -175,7 +182,10 @@ void SettingsDialog::initializeUiState() {
     m_settingsManager->autostartEnabledAsync().then(this, [this](bool isRegistered) {
         ui->checkAutostart->setEnabled(true);
         updateAutostartUi(isRegistered);
-        captureInitialState();
+
+        // Only the field this check owns may enter the baseline; re-reading the whole form here would
+        // accept edits made while the future was still running as already saved values.
+        m_initialState.autostartEnabled = isRegistered;
         updateUiState();
     });
 }

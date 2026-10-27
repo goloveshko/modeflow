@@ -47,8 +47,4 @@ QFuture<bool> AutostartManager::toggleAsync(bool checked, int delaySeconds, bool
     });
 }
 
-bool AutostartManager::isAutostartEnabled() const {
-    return Utils::TaskScheduler::isTaskRegistered();
-}
-
 } // namespace ModeFlow::Services

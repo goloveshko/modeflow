@@ -22,7 +22,6 @@ public:
     void setLanguage(const QString& locale) override;
     void setLanguagePreference(const QString& locale) override;
 
-    bool autostartEnabled() const override;
     QFuture<bool> autostartEnabledAsync() const override;
     QFuture<bool> requestAutostartToggleAsync(bool enabled, int delay, bool enableLogging = false) override;
     int autostartDelay() const override;

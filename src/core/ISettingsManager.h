@@ -15,7 +15,6 @@ public:
     virtual void setLanguage(const QString& locale) = 0;
     virtual void setLanguagePreference(const QString& locale) = 0;
 
-    virtual bool autostartEnabled() const = 0;
     virtual QFuture<bool> autostartEnabledAsync() const = 0;
     virtual QFuture<bool> requestAutostartToggleAsync(bool enabled, int delay, bool enableLogging = false) = 0;
     virtual int autostartDelay() const = 0;
