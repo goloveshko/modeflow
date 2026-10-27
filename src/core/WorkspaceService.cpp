@@ -86,6 +86,7 @@ void WorkspaceService::applyWorkspaceConfig(const WorkspaceConfig& config) {
     m_displayChangeSucceeded = false;
     m_hadAudioError = false;
     m_hadAppLaunchError = false;
+    m_stageIssues.clear();
     m_hadActualChanges = m_displaySwitchRequested || audioChanged;
 
     emit configApplyStarted(config);
@@ -110,7 +111,7 @@ void WorkspaceService::applyWorkspaceConfig(const WorkspaceConfig& config) {
             qCWarning(lcService) << "Failed to initiate display switch (async) for:" << config.name;
             m_isWaitingForDisplay = false;
             m_displayTimeoutTimer->stop();
-            emit errorOccurred(tr("Failed to switch display for profile: %1").arg(config.name));
+            m_stageIssues << tr("the display switch failed");
             finalizeApplication(hasFollowUpActions(config) ? ApplyStatus::PartialSuccess : ApplyStatus::Failed);
         }
     });
@@ -163,7 +164,7 @@ void WorkspaceService::onDisplayTimeout() {
 
     qCDebug(lcCore) << "Display switch timed out, applying audio anyway.";
     m_isWaitingForDisplay = false;
-    emit errorOccurred(tr("Display switch timed out for profile: %1").arg(m_pendingConfig.name));
+    m_stageIssues << tr("the display did not confirm the switch");
     finalizeApplication(ApplyStatus::PartialSuccess);
 }
 
@@ -180,6 +181,7 @@ void WorkspaceService::finalizeApplication(ApplyStatus status) {
     }
 
     if (m_hadAudioError) {
+        m_stageIssues << tr("the audio device was not set");
         const bool hasKnownSuccessfulAction = m_displayChangeSucceeded;
 
         if (!hasKnownSuccessfulAction && !appLaunchConfigured) {
@@ -203,6 +205,7 @@ void WorkspaceService::finalizeApplication(ApplyStatus status) {
     }
 
     if (m_hadAppLaunchError) {
+        m_stageIssues << tr("some applications did not start");
         const bool audioSwitchSucceeded = audioSwitchConfigured && !m_hadAudioError;
         const bool hasKnownSuccessfulAction = m_displayChangeSucceeded || audioSwitchSucceeded;
 
@@ -214,18 +217,21 @@ void WorkspaceService::finalizeApplication(ApplyStatus status) {
     }
 
     // Optional audio feedback (Beep) - will now play strictly on the new default device!
-    if (m_audioConfirmation && m_hadActualChanges) {
+    // A profile that did not achieve anything must not confirm itself: the beep is what the user
+    // hears as "switched", and on a failed apply the screens are still where they were.
+    if (m_audioConfirmation && m_hadActualChanges && status != ApplyStatus::Failed) {
         emit requestAudioFeedback();
     }
 
     qCDebug(lcCore) << "Profile application finished:" << m_pendingConfig.name
-                    << ", status =" << applyStatusName(status);
-    emit configApplyFinished(m_pendingConfig, status);
+                    << ", status =" << applyStatusName(status) << ", issues =" << m_stageIssues;
+    emit configApplyFinished(m_pendingConfig, status, m_stageIssues.join(u", "_s));
 
     m_isApplyingProfile = false;
     m_displayChangeSucceeded = false;
     m_hadAudioError = false;
     m_hadAppLaunchError = false;
+    m_stageIssues.clear();
     m_hadActualChanges = false;
 }
 

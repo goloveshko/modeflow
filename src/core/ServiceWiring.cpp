@@ -58,6 +58,11 @@ void ServiceWiring::wireServiceConnections(AppServices& s, AppController* contro
                               << "status =" << WorkspaceService::applyStatusName(status);
         });
 
+    // The summary of what went wrong belongs next to the profile name, which only the service knows
+    // both of.
+    QObject::connect(s.workspaceService.get(), &WorkspaceService::configApplyFinished, controller,
+                     &AppController::reportApplyOutcome, Qt::UniqueConnection);
+
     QObject::connect(s.workspaceService.get(), &WorkspaceService::requestAudioFeedback, s.audioFeedback.get(),
                      &Services::AudioFeedbackService::playConfirmation, Qt::UniqueConnection);
 

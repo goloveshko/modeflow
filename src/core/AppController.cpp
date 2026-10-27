@@ -364,6 +364,20 @@ void AppController::showNonBlockingError(const QString& message) {
     }
 }
 
+void AppController::reportApplyOutcome(const WorkspaceConfig& config, WorkspaceService::ApplyStatus status,
+                                       const QString& issues) {
+    if (status == WorkspaceService::ApplyStatus::Success) {
+        return;
+    }
+
+    // One sentence for the whole apply: the services already reported their own failures, so without
+    // this the user could not tell a half-applied profile from a fully applied one.
+    const QString message = status == WorkspaceService::ApplyStatus::PartialSuccess
+                                ? tr("Profile \"%1\" was applied with problems: %2.").arg(config.name, issues)
+                                : tr("Profile \"%1\" was not applied: %2.").arg(config.name, issues);
+    showNonBlockingError(message);
+}
+
 void AppController::confirmAndApplyProfile(const WorkspaceConfig& config) {
     if (m_services.dialogManager && m_services.dialogManager->confirmApplyProfile(config)) {
         m_services.workspaceService->applyWorkspaceConfig(config);

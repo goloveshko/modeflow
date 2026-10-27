@@ -654,6 +654,8 @@ private slots:
     void workspaceService_displayChangeFailed();
     void workspaceService_audioSwitch();
     void workspaceService_audioErrorDegradesStatus();
+    void workspaceService_outcomeNamesTheStageThatDidNotWork();
+    void workspaceService_failedApplyDoesNotConfirmItselfWithASound();
     void workspaceService_appLaunchErrorDegradesStatus();
     void workspaceService_partialSuccessDisplayOnly();
     void workspaceService_audioConfirmationEmitted();
@@ -1265,6 +1267,96 @@ void ModeFlowTests::workspaceService_partialSuccessDisplayOnly() {
              ModeFlow::Core::WorkspaceService::ApplyStatus::PartialSuccess);
 }
 
+namespace {
+ModeFlow::Core::WorkspaceConfig makeProfileForSwitch(const QString& id, const QString& displayName) {
+    ModeFlow::Core::WorkspaceConfig config;
+    config.id = id;
+    config.name = id;
+    config.displayId = displayName;
+    return config;
+}
+} // namespace
+
+void ModeFlowTests::workspaceService_outcomeNamesTheStageThatDidNotWork() {
+    using ModeFlow::Core::WorkspaceConfig;
+    using Service = ModeFlow::Core::WorkspaceService;
+
+    // A profile whose display moved but whose audio did not is only half applied, and the summary
+    // has to say which half.
+    FakeDisplayManagerForWS display;
+    display.m_currentDisplayKey = QStringLiteral("display-1");
+    FakeAudioDeviceManagerForWS audio;
+    audio.m_defaultOutputDeviceId = QStringLiteral("old-audio");
+    FakeAppLauncherForWS launcher;
+
+    Service service(&display, &audio, &launcher);
+    service.setDisplayTimeout(5000);
+    QSignalSpy finishedSpy(&service, &Service::configApplyFinished);
+
+    WorkspaceConfig config = makeProfileForSwitch(QStringLiteral("p1"), QStringLiteral("display-2"));
+    config.audioId = QStringLiteral("new-audio");
+
+    service.applyWorkspaceConfig(config);
+    emit audio.errorOccurred(QStringLiteral("audio error"));
+    display.m_currentDisplayKey = QStringLiteral("display-2");
+    display.emitDisplaysChanged();
+
+    QCOMPARE(finishedSpy.count(), 1);
+    QCOMPARE(finishedSpy.at(0).at(1).value<Service::ApplyStatus>(), Service::ApplyStatus::PartialSuccess);
+    QCOMPARE(finishedSpy.at(0).at(2).value<QString>(), QStringLiteral("the audio device was not set"));
+
+    // A refused application launch is named the same way, next to the stage that worked.
+    FakeDisplayManagerForWS secondDisplay;
+    secondDisplay.m_currentDisplayKey = QStringLiteral("display-1");
+    FakeAudioDeviceManagerForWS secondAudio;
+    FakeAppLauncherForWS secondLauncher;
+    secondLauncher.m_launchShouldFail = true;
+
+    Service secondService(&secondDisplay, &secondAudio, &secondLauncher);
+    QSignalSpy secondFinishedSpy(&secondService, &Service::configApplyFinished);
+
+    WorkspaceConfig appConfig = makeProfileForSwitch(QStringLiteral("p2"), QStringLiteral("display-1"));
+    appConfig.appsToLaunch = {{QStringLiteral("C:\\test.exe"), 0, false}};
+
+    secondService.applyWorkspaceConfig(appConfig);
+
+    QCOMPARE(secondFinishedSpy.count(), 1);
+    QCOMPARE(secondFinishedSpy.at(0).at(1).value<Service::ApplyStatus>(), Service::ApplyStatus::Failed);
+    QVERIFY(secondFinishedSpy.at(0).at(2).value<QString>().contains(QStringLiteral("applications")));
+}
+
+void ModeFlowTests::workspaceService_failedApplyDoesNotConfirmItselfWithASound() {
+    using ModeFlow::Core::WorkspaceConfig;
+    using Service = ModeFlow::Core::WorkspaceService;
+
+    FakeDisplayManagerForWS display;
+    display.m_currentDisplayKey = QStringLiteral("display-1");
+    display.m_switchShouldFail = true;
+    FakeAudioDeviceManagerForWS audio;
+    audio.m_defaultOutputDeviceId = QStringLiteral("audio-1");
+    FakeAppLauncherForWS launcher;
+
+    Service service(&display, &audio, &launcher);
+    service.setDisplayTimeout(5000);
+    QSignalSpy finishedSpy(&service, &Service::configApplyFinished);
+    QSignalSpy feedbackSpy(&service, &Service::requestAudioFeedback);
+    QSignalSpy errorSpy(&service, &Service::errorOccurred);
+
+    // Nothing else is configured, so a display that refuses to move fails the whole apply.
+    const WorkspaceConfig config = makeProfileForSwitch(QStringLiteral("p1"), QStringLiteral("display-2"));
+    service.applyWorkspaceConfig(config);
+    QTest::qWait(50);
+
+    QCOMPARE(finishedSpy.count(), 1);
+    QCOMPARE(finishedSpy.at(0).at(1).value<Service::ApplyStatus>(), Service::ApplyStatus::Failed);
+    QCOMPARE(finishedSpy.at(0).at(2).value<QString>(), QStringLiteral("the display switch failed"));
+
+    // The confirmation sound is what the user hears as "switched", so a failed apply stays silent and
+    // reports once through the outcome instead of also through a separate error message.
+    QCOMPARE(feedbackSpy.count(), 0);
+    QVERIFY(errorSpy.isEmpty());
+}
+
 void ModeFlowTests::workspaceService_audioConfirmationEmitted() {
     FakeDisplayManagerForWS display;
     display.m_currentDisplayKey = QStringLiteral("display-1");
@@ -1307,16 +1399,6 @@ void ModeFlowTests::workspaceService_audioConfirmationDisabled() {
 
     QCOMPARE(feedbackSpy.count(), 0);
 }
-
-namespace {
-ModeFlow::Core::WorkspaceConfig makeProfileForSwitch(const QString& id, const QString& displayName) {
-    ModeFlow::Core::WorkspaceConfig config;
-    config.id = id;
-    config.name = id;
-    config.displayId = displayName;
-    return config;
-}
-} // namespace
 
 void ModeFlowTests::workspaceService_secondRequestIsRefusedWhileSwitching() {
     using ModeFlow::Core::WorkspaceConfig;
@@ -1386,7 +1468,10 @@ void ModeFlowTests::workspaceService_staleDisplayFailureDoesNotFinishNextProfile
     // The switch outlives its own timeout, so the operation is reported and closed.
     QTest::qWait(120);
     QCOMPARE(finishedSpy.count(), 1);
-    QCOMPARE(errorSpy.count(), 1);
+    // The timeout is part of the apply outcome now, so the summary carries it instead of a separate
+    // error message about the same profile.
+    QVERIFY(errorSpy.isEmpty());
+    QCOMPARE(finishedSpy.at(0).at(2).value<QString>(), QStringLiteral("the display did not confirm the switch"));
 
     // The second profile keeps its own switch open and gets a timeout long enough that only a stale
     // callback could finish it.
@@ -1400,7 +1485,7 @@ void ModeFlowTests::workspaceService_staleDisplayFailureDoesNotFinishNextProfile
     display.finishDeferredSwitch(false);
     QTest::qWait(50);
     QCOMPARE(finishedSpy.count(), 1);
-    QCOMPARE(errorSpy.count(), 1);
+    QVERIFY(errorSpy.isEmpty());
 
     display.m_currentDisplayKey = QStringLiteral("display-3");
     display.emitDisplaysChanged();

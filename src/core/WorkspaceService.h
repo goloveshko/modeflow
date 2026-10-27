@@ -1,6 +1,7 @@
 ﻿#pragma once
 
 #include <QObject>
+#include <QStringList>
 
 #include "ConfigTypes.h"
 
@@ -72,7 +73,14 @@ public:
 
 signals:
     void configApplyStarted(const WorkspaceConfig& config);
-    void configApplyFinished(const WorkspaceConfig& config, ApplyStatus status);
+
+    /**
+     * @brief One profile application ended.
+     * @param issues Stages that did not work, phrased so they read after "problems:"; empty on
+     *        success. The result alone would leave the user guessing which half of the profile
+     *        failed, and the services report their own errors before this summary arrives.
+     */
+    void configApplyFinished(const WorkspaceConfig& config, ApplyStatus status, const QString& issues);
     void errorOccurred(const QString& message);
 
     /**
@@ -111,6 +119,7 @@ private:
     bool m_displayChangeSucceeded = false;
     bool m_hadAudioError = false;
     bool m_hadAppLaunchError = false;
+    QStringList m_stageIssues;
     bool m_audioConfirmation = true;
     bool m_hadActualChanges = false;
 };

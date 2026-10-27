@@ -282,6 +282,14 @@
         <source>ModeFlow</source>
         <translation>ModeFlow</translation>
     </message>
+    <message>
+        <source>Profile &quot;%1&quot; was applied with problems: %2.</source>
+        <translation>Профиль «%1» применён с проблемами: %2.</translation>
+    </message>
+    <message>
+        <source>Profile &quot;%1&quot; was not applied: %2.</source>
+        <translation>Профиль «%1» не применён: %2.</translation>
+    </message>
 </context>
 <context>
     <name>ModeFlow::Core::ConfigManager</name>
@@ -328,19 +336,35 @@
     <name>ModeFlow::Core::WorkspaceService</name>
     <message>
         <source>Failed to switch display for profile: %1</source>
-        <translation>Не удалось переключить дисплей для профиля: %1</translation>
+        <translation type="vanished">Не удалось переключить дисплей для профиля: %1</translation>
     </message>
     <message>
         <source>Display switch timed out for profile: %1</source>
-        <translation>Превышено время ожидания переключения дисплея для профиля: %1</translation>
+        <translation type="vanished">Превышено время ожидания переключения дисплея для профиля: %1</translation>
     </message>
     <message>
         <source>A display or profile switch is already in progress.</source>
         <translation>Переключение дисплея или профиля уже выполняется.</translation>
     </message>
     <message>
+        <source>the display switch failed</source>
+        <translation>не удалось переключить дисплей</translation>
+    </message>
+    <message>
         <source>Failed to switch display.</source>
         <translation>Не удалось переключить дисплей.</translation>
+    </message>
+    <message>
+        <source>the display did not confirm the switch</source>
+        <translation>дисплей не подтвердил переключение</translation>
+    </message>
+    <message>
+        <source>the audio device was not set</source>
+        <translation>не удалось выбрать аудиовыход</translation>
+    </message>
+    <message>
+        <source>some applications did not start</source>
+        <translation>некоторые приложения не запустились</translation>
     </message>
 </context>
 <context>
