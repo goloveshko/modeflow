@@ -53,6 +53,7 @@
 #include "MainWindow.h"
 #include "ProfileEditor.h"
 #include "ProfileIconMenu.h"
+#include "ProfileSerializer.h"
 #include "ProfileTransfer.h"
 #include "SettingsDialog.h"
 #include "SystemUtils.h"
@@ -596,6 +597,8 @@ private slots:
     void profileEditor_followsTheSuggestedIconWhileItIsAutomatic();
     void profileImport_skipsDuplicatesInsideTheFile();
     void profileImport_leavesTheModelUnchangedWhenSavingFails();
+    void profileExport_roundTripsThroughTheSerializer();
+    void profileExport_keepsAPreviousFileWhenTheTargetCannotBeReplaced();
     void updateService_versionComparison();
     void comInitGuard_initializesComOnWorkerThread();
     void logManager_togglingWhileWorkersEmitKeepsLogFileConsistent();
@@ -2013,6 +2016,68 @@ void ModeFlowTests::profileImport_leavesTheModelUnchangedWhenSavingFails() {
     QCOMPARE(completedSpy.count(), 0);
     QCOMPARE(workspaceManager.configs().size(), rowsBefore);
     QCOMPARE(dialogManager.lastWarningTitle, QStringLiteral("Import Failed"));
+}
+
+namespace {
+QList<ModeFlow::Core::WorkspaceConfig> makeExportProfiles() {
+    using ModeFlow::Core::WorkspaceConfig;
+
+    WorkspaceConfig work;
+    work.id = QStringLiteral("profile-work");
+    work.name = QStringLiteral("Work");
+    work.iconSymbol = QStringLiteral("briefcase");
+
+    WorkspaceConfig gaming;
+    gaming.id = QStringLiteral("profile-gaming");
+    gaming.name = QStringLiteral("Gaming");
+    gaming.skipInCycle = true;
+
+    return {work, gaming};
+}
+} // namespace
+
+void ModeFlowTests::profileExport_roundTripsThroughTheSerializer() {
+    using ModeFlow::Utils::ProfileSerializer;
+
+    const QString path = QDir::tempPath() + QStringLiteral("/modeflow-export-roundtrip.json");
+    QFile::remove(path);
+    QScopeGuard removeFile([&path] { QFile::remove(path); });
+
+    const auto profiles = makeExportProfiles();
+    QVERIFY(ProfileSerializer::exportProfiles(profiles, path));
+
+    QString error;
+    const auto imported = ProfileSerializer::importProfiles(path, error);
+
+    QVERIFY(error.isEmpty());
+    QCOMPARE(imported.size(), 2);
+    QCOMPARE(imported[0].id, profiles[0].id);
+    QCOMPARE(imported[0].name, profiles[0].name);
+    QCOMPARE(imported[1].id, profiles[1].id);
+    QCOMPARE(imported[1].skipInCycle, true);
+}
+
+void ModeFlowTests::profileExport_keepsAPreviousFileWhenTheTargetCannotBeReplaced() {
+    using ModeFlow::Utils::ProfileSerializer;
+
+    const QString path = QDir::tempPath() + QStringLiteral("/modeflow-export-locked.json");
+    QFile::remove(path);
+
+    QFile previous(path);
+    QVERIFY(previous.open(QIODevice::WriteOnly));
+    QVERIFY(previous.write("previous export") > 0);
+    previous.close();
+
+    // Declared before the locking handle so the file is removed only after that handle is closed.
+    QScopeGuard removeFile([&path] { QFile::remove(path); });
+
+    // A target that cannot be replaced must report failure and keep the bytes that were already there.
+    QFile lock(path);
+    QVERIFY(lock.open(QIODevice::ReadWrite));
+    QVERIFY(!ProfileSerializer::exportProfiles(makeExportProfiles(), path));
+
+    lock.seek(0);
+    QCOMPARE(lock.readAll(), QByteArrayLiteral("previous export"));
 }
 
 QTEST_MAIN(ModeFlowTests)

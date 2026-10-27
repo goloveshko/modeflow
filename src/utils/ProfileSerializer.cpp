@@ -2,6 +2,7 @@
 
 #include <QFile>
 #include <QJsonArray>
+#include <QSaveFile>
 
 using namespace Qt::StringLiterals;
 
@@ -18,14 +19,22 @@ bool ProfileSerializer::exportProfiles(const QList<Core::WorkspaceConfig>& profi
     }
     root[u"profiles"_s] = profilesArray;
 
-    QFile file(filePath);
-    if (!file.open(QIODevice::WriteOnly | QIODevice::Text)) {
+    QJsonDocument doc(root);
+    const QByteArray json = doc.toJson(QJsonDocument::Indented);
+
+    // A plain QFile truncates the previous export before writing, so a failed or partial write leaves
+    // the user with nothing. QSaveFile writes a sibling temporary file and only replaces the target
+    // once the whole payload is committed.
+    QSaveFile file(filePath);
+    if (!file.open(QIODevice::WriteOnly)) {
         return false;
     }
 
-    QJsonDocument doc(root);
-    file.write(doc.toJson(QJsonDocument::Indented));
-    return true;
+    if (file.write(json) != json.size()) {
+        return false;
+    }
+
+    return file.commit();
 }
 
 QList<Core::WorkspaceConfig> ProfileSerializer::importProfiles(const QString& filePath, QString& errorOut) {
