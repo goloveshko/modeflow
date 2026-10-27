@@ -49,6 +49,33 @@ QString HotkeyManager::resolveInitialProfileId(Core::ConfigManager* cm) {
     return selected.isEmpty() ? cm->lastActiveProfileId() : selected;
 }
 
+int HotkeyManager::nextCycleIndex(const QList<Core::WorkspaceConfig>& configs, const QString& currentId) {
+    if (configs.isEmpty()) {
+        return -1;
+    }
+
+    int index = -1;
+    for (int i = 0; i < configs.size(); ++i) {
+        if (configs[i].id == currentId) {
+            index = i;
+            break;
+        }
+    }
+
+    // Nothing active yet: the cycle starts at the first profile instead of re-activating nothing.
+    index = (index < 0) ? 0 : (index + 1) % configs.size();
+
+    const int startIndex = index;
+    while (configs[index].skipInCycle) {
+        index = (index + 1) % configs.size();
+        if (index == startIndex) {
+            return -1;
+        }
+    }
+
+    return configs[index].id == currentId ? -1 : index;
+}
+
 int HotkeyManager::findProfileIndexById(const QString& id) const {
     for (int i = 0; i < m_lastConfigs.size(); ++i) {
         if (m_lastConfigs[i].id == id) {
@@ -236,33 +263,13 @@ void HotkeyManager::onNextProfileTriggered() {
     }
 
     const QString currentId = resolveCurrentProfileId();
-    int currentIndex = findProfileIndexById(currentId);
-
-    if (currentIndex == -1) {
-        currentIndex = 0;
-    } else {
-        currentIndex++;
-        if (currentIndex >= m_lastConfigs.size()) {
-            currentIndex = 0;
-        }
+    const int nextIndex = nextCycleIndex(m_lastConfigs, currentId);
+    if (nextIndex < 0) {
+        qCDebug(lcService) << "Next-profile cycle has no other profile to activate, staying on" << currentId;
+        return;
     }
 
-    const int startIndex = currentIndex;
-    while (m_lastConfigs[currentIndex].skipInCycle) {
-        currentIndex++;
-        if (currentIndex >= m_lastConfigs.size()) {
-            currentIndex = 0;
-        }
-        // If we wrapped all the way around, all profiles are skipped — stay on current
-        if (currentIndex == startIndex) {
-            currentIndex = findProfileIndexById(currentId);
-            if (currentIndex == -1)
-                currentIndex = 0;
-            break;
-        }
-    }
-
-    emit activateProfile(m_lastConfigs[currentIndex]);
+    emit activateProfile(m_lastConfigs[nextIndex]);
 }
 
 } // namespace ModeFlow::Services

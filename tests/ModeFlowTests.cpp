@@ -683,6 +683,8 @@ private slots:
     void hotkeyManager_resolveInitialProfileId_null();
     void hotkeyManager_resolveInitialProfileId_selected();
     void hotkeyManager_resolveInitialProfileId_fallback();
+    void hotkeyManager_cycleSkipsProfilesMarkedToSkip();
+    void hotkeyManager_cycleStaysWhenNoOtherProfileExists();
     void hotkeyManager_reportsShortcutsTheSystemRefusedToBind();
 
     void displayManager_parseMonitorKey_valid();
@@ -1836,6 +1838,55 @@ void ModeFlowTests::hotkeyManager_resolveInitialProfileId_fallback() {
     cm.setLastActiveProfileId(QStringLiteral("last-active-1"));
 
     QCOMPARE(ModeFlow::Services::HotkeyManager::resolveInitialProfileId(&cm), QStringLiteral("last-active-1"));
+}
+
+void ModeFlowTests::hotkeyManager_cycleSkipsProfilesMarkedToSkip() {
+    using ModeFlow::Core::WorkspaceConfig;
+    using ModeFlow::Services::HotkeyManager;
+
+    auto profile = [](const QString& id, bool skip) {
+        WorkspaceConfig config;
+        config.id = id;
+        config.name = id;
+        config.skipInCycle = skip;
+        return config;
+    };
+
+    const QList<WorkspaceConfig> configs = {profile(QStringLiteral("a"), false), profile(QStringLiteral("b"), true),
+                                            profile(QStringLiteral("c"), false)};
+
+    // The profile marked to skip is stepped over in both directions, and an unknown current id
+    // starts the cycle at the first profile.
+    QCOMPARE(HotkeyManager::nextCycleIndex(configs, QStringLiteral("a")), 2);
+    QCOMPARE(HotkeyManager::nextCycleIndex(configs, QStringLiteral("c")), 0);
+    QCOMPARE(HotkeyManager::nextCycleIndex(configs, QString()), 0);
+    QCOMPARE(HotkeyManager::nextCycleIndex(configs, QStringLiteral("unknown")), 0);
+}
+
+void ModeFlowTests::hotkeyManager_cycleStaysWhenNoOtherProfileExists() {
+    using ModeFlow::Core::WorkspaceConfig;
+    using ModeFlow::Services::HotkeyManager;
+
+    auto profile = [](const QString& id, bool skip) {
+        WorkspaceConfig config;
+        config.id = id;
+        config.name = id;
+        config.skipInCycle = skip;
+        return config;
+    };
+
+    const QList<WorkspaceConfig> allSkipped = {profile(QStringLiteral("a"), true), profile(QStringLiteral("b"), true)};
+    const QList<WorkspaceConfig> onlyOne = {profile(QStringLiteral("a"), false)};
+    const QList<WorkspaceConfig> currentIsTheOnlyActive = {profile(QStringLiteral("a"), true),
+                                                           profile(QStringLiteral("b"), false)};
+
+    // Re-activating the current profile would close and relaunch its applications, so these cycles
+    // resolve to "stay" instead.
+    QCOMPARE(HotkeyManager::nextCycleIndex(allSkipped, QStringLiteral("a")), -1);
+    QCOMPARE(HotkeyManager::nextCycleIndex(allSkipped, QString()), -1);
+    QCOMPARE(HotkeyManager::nextCycleIndex(onlyOne, QStringLiteral("a")), -1);
+    QCOMPARE(HotkeyManager::nextCycleIndex(currentIsTheOnlyActive, QStringLiteral("b")), -1);
+    QCOMPARE(HotkeyManager::nextCycleIndex(QList<WorkspaceConfig>(), QStringLiteral("a")), -1);
 }
 
 void ModeFlowTests::hotkeyManager_reportsShortcutsTheSystemRefusedToBind() {

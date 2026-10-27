@@ -81,6 +81,18 @@ public:
 
     static QString resolveInitialProfileId(Core::ConfigManager* cm);
 
+    /**
+     * @brief Which profile the next-profile hotkey should activate.
+     * @param configs Profiles in cycle order, exactly as registered.
+     * @param currentId Profile active now; empty when nothing is.
+     * @return Index into @p configs, or -1 when there is no other profile to switch to.
+     *
+     * A cycle holding only the current profile, or only profiles marked skipInCycle, has to end
+     * without a switch: re-emitting the current profile would close and relaunch its applications
+     * even though no hardware moved.
+     */
+    static int nextCycleIndex(const QList<Core::WorkspaceConfig>& configs, const QString& currentId);
+
 signals:
     /**
      * @brief Emitted when a profile hotkey is triggered.
