@@ -25,27 +25,54 @@ CliParser::Result CliParser::parse(const QStringList& arguments) {
     parser.addOption(optDelay);
     parser.addOption(optSilent);
 
-    parser.parse(arguments);
-
     Result result;
 
-    if (parser.isSet(optRegister)) {
+    if (!parser.parse(arguments)) {
+        result.outcome = Outcome::Failed;
+        result.text = parser.errorText();
+        return result;
+    }
+
+    if (parser.isSet(QStringLiteral("help"))) {
+        result.outcome = Outcome::ShowHelp;
+        result.text = parser.helpText();
+        return result;
+    }
+
+    if (parser.isSet(QStringLiteral("version"))) {
+        result.outcome = Outcome::ShowVersion;
+        result.text = QCoreApplication::applicationName() + u' ' + QCoreApplication::applicationVersion();
+        return result;
+    }
+
+    const bool wantsRegister = parser.isSet(optRegister);
+    const bool wantsUnregister = parser.isSet(optUnregister);
+    if (wantsRegister && wantsUnregister) {
+        result.outcome = Outcome::Failed;
+        result.text = QObject::tr("--register and --unregister cannot be used together.");
+        return result;
+    }
+
+    if (parser.isSet(optDelay)) {
+        bool isNumber = false;
+        const int delay = parser.value(optDelay).toInt(&isNumber);
+        if (!isNumber || delay < 0) {
+            result.outcome = Outcome::Failed;
+            result.text = QObject::tr("--delay expects a non-negative number of seconds.");
+            return result;
+        }
+        result.options.delaySeconds = delay;
+    }
+
+    if (wantsRegister) {
         result.mode = RunMode::RegisterTask;
-    } else if (parser.isSet(optUnregister)) {
+    } else if (wantsUnregister) {
         result.mode = RunMode::UnregisterTask;
-    } else {
-        result.mode = RunMode::NormalGui;
     }
 
     result.options.isLogon = parser.isSet(optLogon);
     result.options.isSilentRestart = parser.isSet(optSilent);
     result.options.enableLogging = parser.isSet(optLog);
-
-    bool ok = false;
-    result.options.delaySeconds = parser.value(optDelay).toInt(&ok);
-    if (!ok) {
-        result.options.delaySeconds = 0;
-    }
 
     return result;
 }

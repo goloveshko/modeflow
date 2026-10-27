@@ -625,6 +625,7 @@ private slots:
     void settingsAcceptRollsBackOnSaveFailure();
     void commandLineBuilder_generatesCorrectArguments();
     void cliParser_parsesArgumentsCorrectly();
+    void cliParser_finishesHelpAndBadArgumentsWithoutTouchingTheTask();
     void configManager_isThreadSafeAndConsistent();
     void configManager_skippedVersion_persistsCorrectly();
 
@@ -864,37 +865,76 @@ void ModeFlowTests::cliParser_parsesArgumentsCorrectly() {
     // Scenario 1: Clean Run with No Arguments (Normal GUI)
     {
         QStringList args = {QStringLiteral("ModeFlow.exe")};
-        const auto [mode, options] = CliParser::parse(args);
+        const CliParser::Result result = CliParser::parse(args);
 
-        QCOMPARE(mode, CliParser::RunMode::NormalGui);
-        QVERIFY(!options.isLogon);
-        QVERIFY(!options.isSilentRestart);
-        QVERIFY(!options.enableLogging);
-        QCOMPARE(options.delaySeconds, 0);
+        QCOMPARE(result.outcome, CliParser::Outcome::Run);
+        QCOMPARE(result.mode, CliParser::RunMode::NormalGui);
+        QVERIFY(!result.options.isLogon);
+        QVERIFY(!result.options.isSilentRestart);
+        QVERIFY(!result.options.enableLogging);
+        QCOMPARE(result.options.delaySeconds, 0);
     }
 
     // Scenario 2: Registration in Task Scheduler with Logs and 15-second Delay
     {
         QStringList args = {QStringLiteral("ModeFlow.exe"), QStringLiteral("--register"), QStringLiteral("--logon"),
                             QStringLiteral("--log"),        QStringLiteral("--delay"),    QStringLiteral("15")};
-        const auto [mode, options] = CliParser::parse(args);
+        const CliParser::Result result = CliParser::parse(args);
 
-        QCOMPARE(mode, CliParser::RunMode::RegisterTask);
-        QVERIFY(options.isLogon);
-        QVERIFY(!options.isSilentRestart);
-        QVERIFY(options.enableLogging);
-        QCOMPARE(options.delaySeconds, 15);
+        QCOMPARE(result.outcome, CliParser::Outcome::Run);
+        QCOMPARE(result.mode, CliParser::RunMode::RegisterTask);
+        QVERIFY(result.options.isLogon);
+        QVERIFY(!result.options.isSilentRestart);
+        QVERIFY(result.options.enableLogging);
+        QCOMPARE(result.options.delaySeconds, 15);
     }
 
-    // Scenario 3: Fallback safety when delay is passed as an invalid string
+    // Scenario 3: An unparsable delay is refused instead of silently becoming zero
     {
         QStringList args = {QStringLiteral("ModeFlow.exe"), QStringLiteral("--silent-restart"),
                             QStringLiteral("--delay"), QStringLiteral("invalid")};
-        const auto [mode, options] = CliParser::parse(args);
+        const CliParser::Result result = CliParser::parse(args);
 
-        QCOMPARE(mode, CliParser::RunMode::NormalGui);
-        QVERIFY(options.isSilentRestart);
-        QCOMPARE(options.delaySeconds, 0);
+        QCOMPARE(result.outcome, CliParser::Outcome::Failed);
+        QVERIFY(!result.text.isEmpty());
+    }
+}
+
+void ModeFlowTests::cliParser_finishesHelpAndBadArgumentsWithoutTouchingTheTask() {
+    using ModeFlow::Core::CliParser;
+
+    struct Case {
+        QStringList arguments;
+        CliParser::Outcome expectedOutcome;
+    };
+
+    const QString exe = QStringLiteral("ModeFlow.exe");
+    const QList<Case> cases = {
+        // Help and version have their own outcome instead of falling through to the GUI start.
+        {{exe, QStringLiteral("--help")}, CliParser::Outcome::ShowHelp},
+        {{exe, QStringLiteral("--version")}, CliParser::Outcome::ShowVersion},
+        // A helper flag combined with help must not reach the Task Scheduler branch.
+        {{exe, QStringLiteral("--register"), QStringLiteral("--help")}, CliParser::Outcome::ShowHelp},
+        {{exe, QStringLiteral("--unregister"), QStringLiteral("--version")}, CliParser::Outcome::ShowVersion},
+        // Unknown keys, conflicting modes and a bad delay are refused with an explanation.
+        {{exe, QStringLiteral("--bogus")}, CliParser::Outcome::Failed},
+        {{exe, QStringLiteral("--register"), QStringLiteral("--unregister")}, CliParser::Outcome::Failed},
+        {{exe, QStringLiteral("--register"), QStringLiteral("--delay"), QStringLiteral("invalid")},
+         CliParser::Outcome::Failed},
+        {{exe, QStringLiteral("--unregister"), QStringLiteral("--delay"), QStringLiteral("-5")},
+         CliParser::Outcome::Failed},
+    };
+
+    for (const Case& testCase : cases) {
+        const CliParser::Result result = CliParser::parse(testCase.arguments);
+
+        QVERIFY2(
+            result.outcome == testCase.expectedOutcome,
+            qPrintable(
+                QStringLiteral("%1 -> %2").arg(testCase.arguments.join(u' '), QString::number(int(result.outcome)))));
+        QVERIFY(!result.text.isEmpty());
+        // The safety property: no case below may ask main() to create or delete a scheduled task.
+        QCOMPARE(result.mode, CliParser::RunMode::NormalGui);
     }
 }
 

@@ -869,6 +869,14 @@
         <source>ModeFlow System Utility</source>
         <translation>Системная утилита ModeFlow</translation>
     </message>
+    <message>
+        <source>--register and --unregister cannot be used together.</source>
+        <translation>Параметры --register и --unregister нельзя использовать вместе.</translation>
+    </message>
+    <message>
+        <source>--delay expects a non-negative number of seconds.</source>
+        <translation>Параметр --delay ожидает неотрицательное число секунд.</translation>
+    </message>
 </context>
 <context>
     <name>SettingsDialog</name>

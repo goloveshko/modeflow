@@ -3,6 +3,8 @@
 #include <QMessageBox>
 #include <QStandardPaths>
 #include <QSystemTrayIcon>
+#include <QTextStream>
+#include <cstdio>
 
 #include "AppController.h"
 #include "CliParser.h"
@@ -42,16 +44,23 @@ int main(int argc, char* argv[]) {
     QCoreApplication::setOrganizationDomain(ModeFlow::Info::Domain);
     QCoreApplication::setApplicationVersion(ModeFlow::Info::Version);
 
+    const CliParser::Result cli = CliParser::parse(app.arguments());
+    if (cli.outcome != CliParser::Outcome::Run) {
+        // Help, version and bad arguments finish here, before the crash dump directory, the
+        // log file and any Task Scheduler operation are reached.
+        QTextStream out(cli.outcome == CliParser::Outcome::Failed ? stderr : stdout);
+        out << cli.text << '\n';
+        return cli.outcome == CliParser::Outcome::Failed ? 1 : 0;
+    }
+
     QString appDataDir = QStandardPaths::writableLocation(QStandardPaths::AppDataLocation);
     ModeFlow::Utils::CrashHandler::setup(appDataDir + "/CrashDumps");
 
     app.setWindowIcon(QIcon(u":/icons/app/icon.svg"_s));
 
-    const auto [runMode, options] = CliParser::parse(app.arguments());
-
     ConfigManager config;
     config.loadConfig();
-    LogManager::setup(config.loggingEnabled() || options.enableLogging);
+    LogManager::setup(config.loggingEnabled() || cli.options.enableLogging);
 
     qCDebug(lcMain) << "--- Log Session Started ---";
     qCDebug(lcMain) << "Application Version:" << ModeFlow::Info::Version;
@@ -69,14 +78,14 @@ int main(int argc, char* argv[]) {
         return 1;
 #endif
 
-    if (runMode == CliParser::RunMode::RegisterTask) {
+    if (cli.mode == CliParser::RunMode::RegisterTask) {
         CommandLineBuilder builder;
-        builder.withLogon(options.isLogon).withLog(options.enableLogging);
+        builder.withLogon(cli.options.isLogon).withLog(cli.options.enableLogging);
 
-        const bool ok = TaskScheduler::createTaskAtLogon(builder.toString(), options.delaySeconds, false);
+        const bool ok = TaskScheduler::createTaskAtLogon(builder.toString(), cli.options.delaySeconds, false);
         return ok ? 0 : 1;
     }
-    if (runMode == CliParser::RunMode::UnregisterTask) {
+    if (cli.mode == CliParser::RunMode::UnregisterTask) {
         const bool ok = TaskScheduler::removeTask();
         return ok ? 0 : 1;
     }
@@ -103,7 +112,7 @@ int main(int argc, char* argv[]) {
     QObject::connect(appController.get(), &AppController::aboutToRestart, &guard,
                      &ModeFlow::Services::SingleInstanceGuard::shutdown);
 
-    appController->init(options);
+    appController->init(cli.options);
 
     return app.exec();
 }
