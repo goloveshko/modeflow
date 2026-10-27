@@ -18,12 +18,14 @@
 #include <QFile>
 #include <QFileInfo>
 #include <QJsonDocument>
+#include <QLocalSocket>
 #include <QPair>
 #include <QPoint>
 #include <QScopeGuard>
 #include <QSize>
 #include <QStandardPaths>
 #include <QTextStream>
+#include <QUuid>
 #include <atomic>
 #include <memory>
 #include <optional>
@@ -44,6 +46,7 @@
 #include "CommandLineBuilder.h"
 #include "ConfigManager.h"
 #include "ConfigTypes.h"
+#include "Constants.h"
 #include "DeviceUtils.h"
 #include "DisplayManager.h"
 #include "HotkeyEdit.h"
@@ -61,6 +64,7 @@
 #include "ProfileSerializer.h"
 #include "ProfileTransfer.h"
 #include "SettingsDialog.h"
+#include "SingleInstanceGuard.h"
 #include "SystemUtils.h"
 #include "UpdateService.h"
 #include "WorkspaceModel.h"
@@ -681,6 +685,8 @@ private slots:
     void updateService_versionComparison();
     void updateService_usableReleaseRejectsADraftThatCannotBeOpened();
     void updateService_offersACachedReleaseOnlyWhenItIsUsableAndNotSkipped();
+    void singleInstanceGuard_raisesTheWindowForAHandshakeSplitIntoFragments();
+    void singleInstanceGuard_dropsClientsThatDoNotCompleteTheHandshake();
     void comInitGuard_initializesComOnWorkerThread();
     void logManager_togglingWhileWorkersEmitKeepsLogFileConsistent();
 };
@@ -2035,6 +2041,82 @@ void ModeFlowTests::updateService_offersACachedReleaseOnlyWhenItIsUsableAndNotSk
         UpdateService service(&config);
         QVERIFY(!service.isUpdateAvailable());
     }
+}
+
+namespace {
+/// Binds a guard to a name that cannot clash with the local server of a running ModeFlow instance.
+bool listenAsTestServer(ModeFlow::Services::SingleInstanceGuard& guard, QString& serverNameOut) {
+    serverNameOut = QStringLiteral("ModeFlow_test_%1").arg(QUuid::createUuid().toString(QUuid::WithoutBraces));
+
+    bool started = false;
+    QMetaObject::invokeMethod(&guard, "startAsServer", Qt::DirectConnection, Q_RETURN_ARG(bool, started),
+                              Q_ARG(QString, serverNameOut));
+    return started;
+}
+} // namespace
+
+void ModeFlowTests::singleInstanceGuard_raisesTheWindowForAHandshakeSplitIntoFragments() {
+    using ModeFlow::Services::SingleInstanceGuard;
+
+    SingleInstanceGuard guard;
+    QString serverName;
+    QVERIFY(listenAsTestServer(guard, serverName));
+
+    QSignalSpy raised(&guard, &SingleInstanceGuard::signalRaiseWindow);
+
+    QLocalSocket client;
+    client.connectToServer(serverName);
+    QVERIFY(client.waitForConnected(ModeFlow::Utils::LocalSocketTimeoutMs));
+
+    const QByteArray payload = SingleInstanceGuard::activationPayload();
+    const int firstChunkSize = payload.size() / 2;
+
+    client.write(payload.left(firstChunkSize));
+    client.flush();
+    QTest::qWait(50);
+
+    // The old code compared this first chunk with the whole message and answered "unauthorized".
+    QCOMPARE(raised.count(), 0);
+
+    client.write(payload.mid(firstChunkSize));
+    client.flush();
+
+    QTRY_COMPARE_WITH_TIMEOUT(raised.count(), 1, ModeFlow::Utils::LocalSocketTimeoutMs * 4);
+}
+
+void ModeFlowTests::singleInstanceGuard_dropsClientsThatDoNotCompleteTheHandshake() {
+    using ModeFlow::Services::SingleInstanceGuard;
+
+    SingleInstanceGuard guard;
+    QString serverName;
+    QVERIFY(listenAsTestServer(guard, serverName));
+
+    QSignalSpy raised(&guard, &SingleInstanceGuard::signalRaiseWindow);
+
+    QLocalSocket wrongSecret;
+    wrongSecret.connectToServer(serverName);
+    QVERIFY(wrongSecret.waitForConnected(ModeFlow::Utils::LocalSocketTimeoutMs));
+    wrongSecret.write(QByteArray("ACTIVATE:") + QByteArray(64, '0'));
+    wrongSecret.flush();
+
+    // Half of the handshake deadline: a mismatch is refused as soon as it is read, not by the timer.
+    QTRY_VERIFY_WITH_TIMEOUT(wrongSecret.state() == QLocalSocket::UnconnectedState,
+                             ModeFlow::Utils::LocalSocketTimeoutMs / 2);
+    QCOMPARE(raised.count(), 0);
+
+    QLocalSocket deadbeat;
+    deadbeat.connectToServer(serverName);
+    QVERIFY(deadbeat.waitForConnected(ModeFlow::Utils::LocalSocketTimeoutMs));
+    deadbeat.write("ACTIVATE:");
+    deadbeat.flush();
+
+    // A peer that stops halfway must be released by the event loop, not by a blocking wait.
+    QThread::msleep(ModeFlow::Utils::LocalSocketTimeoutMs / 4);
+    QVERIFY(deadbeat.state() != QLocalSocket::UnconnectedState);
+
+    QTRY_VERIFY_WITH_TIMEOUT(deadbeat.state() == QLocalSocket::UnconnectedState,
+                             ModeFlow::Utils::LocalSocketTimeoutMs * 4);
+    QCOMPARE(raised.count(), 0);
 }
 
 void ModeFlowTests::comInitGuard_initializesComOnWorkerThread() {
