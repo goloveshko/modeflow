@@ -42,8 +42,7 @@ private:
     void processThemeChange(Core::Theme oldTheme);
     void restartApp(bool silentRestart = false);
     void showNonBlockingError(const QString& message);
-    void reportApplyOutcome(const ModeFlow::Core::WorkspaceConfig& config,
-                            ModeFlow::Core::WorkspaceService::ApplyStatus status, const QString& issues);
+    void reportApplyOutcome(const WorkspaceConfig& config, WorkspaceService::ApplyStatus status, const QString& issues);
 
 public slots:
     void raiseMainWindow();
