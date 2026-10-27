@@ -14,7 +14,9 @@
 #endif
 
 // Explicitly include required Qt and core types
+#include <memory>
 #include <optional>
+#include <vector>
 #include <QDir>
 #include <QFile>
 #include <QFileInfo>
@@ -321,6 +323,16 @@ public:
 
     QFuture<bool> setDisplayModeAsync(const QString& displayId) override {
         m_lastSwitchTarget = displayId;
+        if (m_deferSwitch) {
+            // The test decides when the system reports back, so a result can be delivered after a
+            // later operation has already started.
+            auto promise = std::make_unique<QPromise<bool>>();
+            promise->start();
+            QFuture<bool> future = promise->future();
+            m_pendingPromises.push_back(std::move(promise));
+            m_deferSwitch = false;
+            return future;
+        }
         if (m_switchShouldFail) {
             return QtFuture::makeReadyValueFuture(false);
         }
@@ -331,9 +343,24 @@ public:
 
     void emitDisplaysChanged() { emit displaysChanged(); }
 
+    // Delivers the result of the switch that has been waiting the longest.
+    void finishDeferredSwitch(bool success) {
+        if (m_pendingPromises.empty()) {
+            return;
+        }
+        std::unique_ptr<QPromise<bool>> promise = std::move(m_pendingPromises.front());
+        m_pendingPromises.erase(m_pendingPromises.begin());
+        promise->addResult(success);
+        promise->finish();
+    }
+
     QString m_currentDisplayKey;
     QString m_lastSwitchTarget;
     bool m_switchShouldFail = false;
+    bool m_deferSwitch = false;
+
+private:
+    std::vector<std::unique_ptr<QPromise<bool>>> m_pendingPromises;
 };
 
 class FakeAudioDeviceManagerForWS : public ModeFlow::Services::AudioDeviceManager {
@@ -532,6 +559,10 @@ private slots:
     void workspaceService_partialSuccessDisplayOnly();
     void workspaceService_audioConfirmationEmitted();
     void workspaceService_audioConfirmationDisabled();
+    void workspaceService_secondRequestIsRefusedWhileSwitching();
+    void workspaceService_staleDisplayFailureDoesNotFinishNextProfile();
+    void workspaceService_directDisplaySwitchReportsFailure();
+    void workspaceService_directDisplaySwitchBlocksProfileApply();
 
     void appLauncher_emptyPathReturnsTrue();
     void appLauncher_nonExistentFileReturnsFalse();
@@ -1381,6 +1412,175 @@ void ModeFlowTests::logManager_togglingWhileWorkersEmitKeepsLogFileConsistent() 
     QVERIFY2(!bytesSince(finalSize).contains(disabledProbe.toUtf8()),
              "A message was stored after logging was switched off");
 }
+
+namespace {
+ModeFlow::Core::WorkspaceConfig makeProfileForSwitch(const QString& id, const QString& displayName) {
+    ModeFlow::Core::WorkspaceConfig config;
+    config.id = id;
+    config.name = id;
+    config.displayId = displayName;
+    return config;
+}
+} // namespace
+
+void ModeFlowTests::workspaceService_secondRequestIsRefusedWhileSwitching() {
+    using ModeFlow::Core::WorkspaceConfig;
+    using Service = ModeFlow::Core::WorkspaceService;
+
+    FakeDisplayManagerForWS display;
+    display.m_currentDisplayKey = QStringLiteral("display-1");
+    display.m_deferSwitch = true;
+    FakeAudioDeviceManagerForWS audio;
+    FakeAppLauncherForWS launcher;
+
+    Service service(&display, &audio, &launcher);
+    service.setDisplayTimeout(5000);
+
+    QSignalSpy startedSpy(&service, &Service::configApplyStarted);
+    QSignalSpy finishedSpy(&service, &Service::configApplyFinished);
+    QSignalSpy errorSpy(&service, &Service::errorOccurred);
+
+    const WorkspaceConfig first = makeProfileForSwitch(QStringLiteral("p1"), QStringLiteral("display-2"));
+    const WorkspaceConfig second = makeProfileForSwitch(QStringLiteral("p2"), QStringLiteral("display-3"));
+
+    service.applyWorkspaceConfig(first);
+    QCOMPARE(startedSpy.count(), 1);
+
+    // A tray or hotkey press during a transition must not take over the operation in flight.
+    service.applyWorkspaceConfig(second);
+    QCOMPARE(startedSpy.count(), 1);
+    QCOMPARE(finishedSpy.count(), 0);
+    QCOMPARE(errorSpy.count(), 1);
+    QCOMPARE(launcher.m_launchSequenceCount, 0);
+
+    display.finishDeferredSwitch(true);
+    QTest::qWait(50);
+    QCOMPARE(finishedSpy.count(), 0);
+
+    display.m_currentDisplayKey = QStringLiteral("display-2");
+    display.emitDisplaysChanged();
+
+    QCOMPARE(finishedSpy.count(), 1);
+    QCOMPARE(finishedSpy.at(0).at(0).value<WorkspaceConfig>().id, QStringLiteral("p1"));
+    QCOMPARE(finishedSpy.at(0).at(1).value<Service::ApplyStatus>(), Service::ApplyStatus::Success);
+    QCOMPARE(display.m_lastSwitchTarget, QStringLiteral("display-2"));
+    QVERIFY(!service.isSwitchInProgress());
+}
+
+void ModeFlowTests::workspaceService_staleDisplayFailureDoesNotFinishNextProfile() {
+    using ModeFlow::Core::WorkspaceConfig;
+    using Service = ModeFlow::Core::WorkspaceService;
+
+    FakeDisplayManagerForWS display;
+    display.m_currentDisplayKey = QStringLiteral("display-1");
+    display.m_deferSwitch = true;
+    FakeAudioDeviceManagerForWS audio;
+    FakeAppLauncherForWS launcher;
+
+    Service service(&display, &audio, &launcher);
+    service.setDisplayTimeout(30);
+
+    QSignalSpy startedSpy(&service, &Service::configApplyStarted);
+    QSignalSpy finishedSpy(&service, &Service::configApplyFinished);
+    QSignalSpy errorSpy(&service, &Service::errorOccurred);
+
+    const WorkspaceConfig first = makeProfileForSwitch(QStringLiteral("p1"), QStringLiteral("display-2"));
+    const WorkspaceConfig second = makeProfileForSwitch(QStringLiteral("p2"), QStringLiteral("display-3"));
+
+    service.applyWorkspaceConfig(first);
+    // The switch outlives its own timeout, so the operation is reported and closed.
+    QTest::qWait(120);
+    QCOMPARE(finishedSpy.count(), 1);
+    QCOMPARE(errorSpy.count(), 1);
+
+    // The second profile keeps its own switch open and gets a timeout long enough that only a stale
+    // callback could finish it.
+    service.setDisplayTimeout(5000);
+    display.m_deferSwitch = true;
+    service.applyWorkspaceConfig(second);
+    QCOMPARE(startedSpy.count(), 2);
+
+    // Now the abandoned first switch reports its failure. It belongs to a finished operation, so it
+    // may not decide the outcome of the profile that is being applied right now.
+    display.finishDeferredSwitch(false);
+    QTest::qWait(50);
+    QCOMPARE(finishedSpy.count(), 1);
+    QCOMPARE(errorSpy.count(), 1);
+
+    display.m_currentDisplayKey = QStringLiteral("display-3");
+    display.emitDisplaysChanged();
+
+    QCOMPARE(finishedSpy.count(), 2);
+    QCOMPARE(finishedSpy.at(1).at(0).value<WorkspaceConfig>().id, QStringLiteral("p2"));
+    QCOMPARE(finishedSpy.at(1).at(1).value<Service::ApplyStatus>(), Service::ApplyStatus::Success);
+    QVERIFY(!service.isSwitchInProgress());
+}
+
+void ModeFlowTests::workspaceService_directDisplaySwitchReportsFailure() {
+    using ModeFlow::Core::WorkspaceConfig;
+    using Service = ModeFlow::Core::WorkspaceService;
+
+    FakeDisplayManagerForWS display;
+    display.m_currentDisplayKey = QStringLiteral("display-1");
+    display.m_switchShouldFail = true;
+    FakeAudioDeviceManagerForWS audio;
+    FakeAppLauncherForWS launcher;
+
+    Service service(&display, &audio, &launcher);
+
+    QSignalSpy errorSpy(&service, &Service::errorOccurred);
+    QSignalSpy startedSpy(&service, &Service::configApplyStarted);
+
+    // The tray display submenu used to drop the future, so a failed switch stayed invisible.
+    service.switchDisplayDirectly(QStringLiteral("display-2"));
+    QTest::qWait(50);
+
+    QCOMPARE(errorSpy.count(), 1);
+    QVERIFY(!service.isSwitchInProgress());
+
+    service.switchDisplayDirectly(QString());
+    QCOMPARE(errorSpy.count(), 1);
+
+    const WorkspaceConfig profile = makeProfileForSwitch(QStringLiteral("p1"), QStringLiteral("display-1"));
+    service.applyWorkspaceConfig(profile);
+    QCOMPARE(startedSpy.count(), 1);
+}
+
+void ModeFlowTests::workspaceService_directDisplaySwitchBlocksProfileApply() {
+    using ModeFlow::Core::WorkspaceConfig;
+    using Service = ModeFlow::Core::WorkspaceService;
+
+    FakeDisplayManagerForWS display;
+    display.m_currentDisplayKey = QStringLiteral("display-1");
+    display.m_deferSwitch = true;
+    FakeAudioDeviceManagerForWS audio;
+    FakeAppLauncherForWS launcher;
+
+    Service service(&display, &audio, &launcher);
+    service.setDisplayTimeout(5000);
+
+    QSignalSpy startedSpy(&service, &Service::configApplyStarted);
+    QSignalSpy finishedSpy(&service, &Service::configApplyFinished);
+    QSignalSpy errorSpy(&service, &Service::errorOccurred);
+
+    service.switchDisplayDirectly(QStringLiteral("display-2"));
+    QVERIFY(service.isSwitchInProgress());
+
+    const WorkspaceConfig profile = makeProfileForSwitch(QStringLiteral("p1"), QStringLiteral("display-3"));
+    service.applyWorkspaceConfig(profile);
+    QCOMPARE(startedSpy.count(), 0);
+    QCOMPARE(errorSpy.count(), 1);
+
+    display.finishDeferredSwitch(true);
+    QTest::qWait(50);
+    QVERIFY(!service.isSwitchInProgress());
+
+    service.applyWorkspaceConfig(profile);
+    QCOMPARE(startedSpy.count(), 1);
+    QCOMPARE(finishedSpy.count(), 0);
+    QCOMPARE(display.m_lastSwitchTarget, QStringLiteral("display-3"));
+}
+
 
 QTEST_MAIN(ModeFlowTests)
 

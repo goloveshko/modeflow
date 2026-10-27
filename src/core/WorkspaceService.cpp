@@ -55,11 +55,18 @@ void WorkspaceService::setAudioConfirmation(bool enabled) {
 }
 
 void WorkspaceService::applyWorkspaceConfig(const WorkspaceConfig& config) {
+    if (isSwitchInProgress()) {
+        qCWarning(lcCore) << "Another switch is in progress, ignoring profile:" << config.name;
+        emit errorOccurred(tr("A display or profile switch is already in progress."));
+        return;
+    }
+
     qCDebug(lcCore) << "Applying profile:" << config.name;
 
     m_displayTimeoutTimer->stop();
     m_isWaitingForDisplay = false;
     m_isApplyingProfile = true;
+    const quint64 operationId = ++m_operationId;
 
     if (!m_pendingConfig.appsToLaunch.isEmpty()) {
         m_appLauncher->terminateProfileProcesses(m_pendingConfig.id);
@@ -70,17 +77,17 @@ void WorkspaceService::applyWorkspaceConfig(const WorkspaceConfig& config) {
     QString currentDisplay = m_displayManager->getCurrentDisplayKey();
     QString currentAudio = m_audioManager->getDefaultOutputDeviceId();
 
-    bool displayChanged = !config.displayId.isEmpty() && (config.displayId != currentDisplay);
-    bool audioChanged = !config.audioId.isEmpty() && (config.audioId != currentAudio);
+    m_displaySwitchRequested = !config.displayId.isEmpty() && (config.displayId != currentDisplay);
+    const bool audioChanged = !config.audioId.isEmpty() && (config.audioId != currentAudio);
 
     m_displayChangeSucceeded = false;
     m_hadAudioError = false;
     m_hadAppLaunchError = false;
-    m_hadActualChanges = displayChanged || audioChanged;
+    m_hadActualChanges = m_displaySwitchRequested || audioChanged;
 
     emit configApplyStarted(config);
 
-    if (config.displayId.isEmpty() || currentDisplay == config.displayId) {
+    if (!m_displaySwitchRequested) {
         finalizeApplication(ApplyStatus::Success);
         return;
     }
@@ -89,8 +96,10 @@ void WorkspaceService::applyWorkspaceConfig(const WorkspaceConfig& config) {
     m_displayTimeoutTimer->start(m_displayTimeoutMs);
     qCDebug(lcService) << "Display switch command sent asynchronously, waiting for system confirmation...";
 
-    m_displayManager->setDisplayModeAsync(config.displayId).then(this, [this, config](bool success) {
-        if (!m_isApplyingProfile) {
+    m_displayManager->setDisplayModeAsync(config.displayId).then(this, [this, config, operationId](bool success) {
+        // A switch that already timed out is no longer this operation's concern: reporting it here
+        // would finish the profile that is being applied right now.
+        if (!m_isApplyingProfile || operationId != m_operationId) {
             return;
         }
 
@@ -100,6 +109,32 @@ void WorkspaceService::applyWorkspaceConfig(const WorkspaceConfig& config) {
             m_displayTimeoutTimer->stop();
             emit errorOccurred(tr("Failed to switch display for profile: %1").arg(config.name));
             finalizeApplication(hasFollowUpActions(config) ? ApplyStatus::PartialSuccess : ApplyStatus::Failed);
+        }
+    });
+}
+
+void WorkspaceService::switchDisplayDirectly(const QString& displayId) {
+    if (displayId.isEmpty()) {
+        return;
+    }
+
+    if (isSwitchInProgress()) {
+        qCWarning(lcCore) << "Another switch is in progress, ignoring direct display request:" << displayId;
+        emit errorOccurred(tr("A display or profile switch is already in progress."));
+        return;
+    }
+
+    qCDebug(lcCore) << "Switching display directly:" << displayId;
+
+    ++m_operationId;
+    m_isSwitchingDisplay = true;
+
+    m_displayManager->setDisplayModeAsync(displayId).then(this, [this, displayId](bool success) {
+        m_isSwitchingDisplay = false;
+
+        if (!success) {
+            qCWarning(lcService) << "Direct display switch failed:" << displayId;
+            emit errorOccurred(tr("Failed to switch display."));
         }
     });
 }

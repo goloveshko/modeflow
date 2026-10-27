@@ -334,6 +334,14 @@
         <source>Display switch timed out for profile: %1</source>
         <translation>Превышено время ожидания переключения дисплея для профиля: %1</translation>
     </message>
+    <message>
+        <source>A display or profile switch is already in progress.</source>
+        <translation>Переключение дисплея или профиля уже выполняется.</translation>
+    </message>
+    <message>
+        <source>Failed to switch display.</source>
+        <translation>Не удалось переключить дисплей.</translation>
+    </message>
 </context>
 <context>
     <name>ModeFlow::Gui::AboutDialog</name>

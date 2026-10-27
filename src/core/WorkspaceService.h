@@ -39,7 +39,19 @@ public:
 
     void applyWorkspaceConfig(const WorkspaceConfig& config);
 
+    /**
+     * @brief Switch the display without applying a profile.
+     *
+     * Used by the tray submenu. The result is reported to the user, and the request is refused
+     * while another switch owns the display topology.
+     */
+    void switchDisplayDirectly(const QString& displayId);
+
     bool isWaitingForDisplay() const { return m_isWaitingForDisplay; }
+
+    // A profile apply and a direct display switch both move the monitors, so only one of them may
+    // be in flight; otherwise the reported result would belong to whichever callback arrived last.
+    bool isSwitchInProgress() const { return m_isApplyingProfile || m_isSwitchingDisplay; }
 
     /**
      * @brief Set display switch timeout delay.
@@ -88,6 +100,11 @@ private:
     int m_displayTimeoutMs;
     bool m_isWaitingForDisplay = false;
     bool m_isApplyingProfile = false;
+    bool m_isSwitchingDisplay = false;
+    bool m_displaySwitchRequested = false;
+    // Identifies the operation that is currently allowed to report a result, so a completion that
+    // arrives after its own operation already ended is ignored instead of finishing the next one.
+    quint64 m_operationId = 0;
     bool m_displayChangeSucceeded = false;
     bool m_hadAudioError = false;
     bool m_hadAppLaunchError = false;

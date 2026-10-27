@@ -80,9 +80,10 @@ void ServiceWiring::wireServiceConnections(AppServices& s, AppController* contro
     QObject::connect(s.trayController.get(), &Gui::TrayController::activateProfile, controller,
                      &AppController::confirmAndApplyProfile, Qt::UniqueConnection);
 
-    auto* displayManager = s.displayManager.get();
-    QObject::connect(s.trayController.get(), &Gui::TrayController::switchDisplay, displayManager,
-                     [displayManager](const QString& displayId) { displayManager->setDisplayModeAsync(displayId); });
+    // The tray display submenu goes through WorkspaceService so the switch shares the busy control
+    // with profile applies and its failure reaches the user instead of being dropped with the future.
+    QObject::connect(s.trayController.get(), &Gui::TrayController::switchDisplay, s.workspaceService.get(),
+                     &WorkspaceService::switchDisplayDirectly, Qt::UniqueConnection);
 
     QObject::connect(s.trayController.get(), &Gui::TrayController::switchAudio, s.audioManager.get(),
                      &Services::AudioDeviceManager::onSetDefaultOutputDevice, Qt::UniqueConnection);
