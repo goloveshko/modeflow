@@ -35,6 +35,7 @@
 // objidl.h carries the apartment enums used to probe COM state; objbase.h alone does not pull it in.
 #include <objbase.h>
 #include <objidl.h>
+#include <qt_windows.h>
 #endif
 
 #include "AppLauncher.h"
@@ -678,6 +679,7 @@ private slots:
     void hotkeyManager_resolveInitialProfileId_null();
     void hotkeyManager_resolveInitialProfileId_selected();
     void hotkeyManager_resolveInitialProfileId_fallback();
+    void hotkeyManager_reportsShortcutsTheSystemRefusedToBind();
 
     void displayManager_parseMonitorKey_valid();
     void displayManager_parseMonitorKey_invalid();
@@ -1744,6 +1746,50 @@ void ModeFlowTests::hotkeyManager_resolveInitialProfileId_fallback() {
     cm.setLastActiveProfileId(QStringLiteral("last-active-1"));
 
     QCOMPARE(ModeFlow::Services::HotkeyManager::resolveInitialProfileId(&cm), QStringLiteral("last-active-1"));
+}
+
+void ModeFlowTests::hotkeyManager_reportsShortcutsTheSystemRefusedToBind() {
+#ifdef Q_OS_WIN
+    using ModeFlow::Core::WorkspaceConfig;
+    using ModeFlow::Services::HotkeyManager;
+
+    // F13 has no key on an ordinary keyboard, so claiming it here cannot steal a combination the
+    // user assigned to something else. The manager's RegisterHotKey call is then refused by the
+    // system for sure, instead of depending on which applications happen to be running.
+    constexpr UINT claimedId = 0x0913;
+    constexpr UINT claimedMods = MOD_CONTROL | MOD_ALT;
+    QVERIFY(RegisterHotKey(nullptr, claimedId, claimedMods, VK_F13));
+    const auto release = qScopeGuard([] { UnregisterHotKey(nullptr, claimedId); });
+
+    HotkeyManager manager(nullptr, nullptr, nullptr);
+    QSignalSpy errors(&manager, &HotkeyManager::errorOccurred);
+
+    WorkspaceConfig profile;
+    profile.id = QStringLiteral("claimed");
+    profile.name = QStringLiteral("Claimed profile");
+    profile.hotkey = QKeySequence(QStringLiteral("Ctrl+Alt+F13"));
+
+    manager.setProfiles({profile});
+    QCOMPARE(errors.count(), 1);
+    const QString profileMessage = errors.at(0).at(0).toString();
+    QVERIFY2(profileMessage.contains(QStringLiteral("Claimed profile")), qPrintable(profileMessage));
+    QVERIFY2(profileMessage.contains(QStringLiteral("Ctrl+Alt+F13")), qPrintable(profileMessage));
+
+    errors.clear();
+    QVERIFY(manager.setNextProfileHotkey(QKeySequence(QStringLiteral("Ctrl+Alt+F13"))));
+    QCOMPARE(errors.count(), 1);
+    const QString nextMessage = errors.at(0).at(0).toString();
+    QVERIFY2(nextMessage.contains(QStringLiteral("Ctrl+Alt+F13")), qPrintable(nextMessage));
+
+    // While a shortcut field has focus every registration is suspended on purpose, so an unbound
+    // key in that window must not be reported as a failure.
+    errors.clear();
+    manager.setCaptureMode(true);
+    QVERIFY(manager.setNextProfileHotkey(QKeySequence(QStringLiteral("Ctrl+Alt+F14"))));
+    QCOMPARE(errors.count(), 0);
+#else
+    QSKIP("Global hotkey registration is a Windows feature.");
+#endif
 }
 
 void ModeFlowTests::displayManager_parseMonitorKey_valid() {

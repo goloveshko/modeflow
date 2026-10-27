@@ -93,6 +93,11 @@ signals:
      */
     void hotkeysDisabledWarning();
 
+    /**
+     * @brief Emitted when the system refused to bind a configured shortcut.
+     */
+    void errorOccurred(const QString& message);
+
 private slots:
     void onProfileTriggered();
     void onNextProfileTriggered();

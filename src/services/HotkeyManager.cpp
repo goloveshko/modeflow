@@ -115,6 +115,7 @@ bool HotkeyManager::setProfiles(const QList<Core::WorkspaceConfig>& configs) {
     m_lastConfigs = configs;
 
     bool anyChanges = false;
+    QStringList takenShortcuts;
 
     for (const auto& cfg : configs) {
         if (cfg.hotkey.isEmpty()) {
@@ -140,8 +141,15 @@ bool HotkeyManager::setProfiles(const QList<Core::WorkspaceConfig>& configs) {
                 hotkey->deleteLater();
                 qCWarning(lcService) << "Failed to register hotkey for profile:" << cfg.name
                                      << "key:" << cfg.hotkey.toString();
+                takenShortcuts << QStringLiteral("%1 (%2)").arg(cfg.name, cfg.hotkey.toString());
             }
         }
+    }
+
+    if (!takenShortcuts.isEmpty()) {
+        emit errorOccurred(tr("These shortcuts are already used by another application, so the profiles "
+                              "will not react to them:\n%1")
+                               .arg(takenShortcuts.join(u'\n')));
     }
 
     // Safely unregister and delete only the old hotkeys that are no longer used/edited
@@ -171,8 +179,15 @@ bool HotkeyManager::setNextProfileHotkey(const QKeySequence& sequence) {
     }
 
     m_nextProfileHotkey->setShortcut(sequence, !m_captureMode);
-    qCDebug(lcService) << "Registered global 'Next Profile' hotkey:" << sequence.toString()
-                       << "success:" << m_nextProfileHotkey->isRegistered();
+    const bool registered = m_nextProfileHotkey->isRegistered();
+    qCDebug(lcService) << "Registered global 'Next Profile' hotkey:" << sequence.toString() << "success:" << registered;
+    // While a hotkey field has focus every registration is suspended on purpose, so an unbound
+    // shortcut in that window is not a failure the user should be warned about.
+    if (!m_captureMode && !registered) {
+        emit errorOccurred(tr("The 'Next profile' shortcut %1 is already used by another application, so it will not "
+                              "work.")
+                               .arg(sequence.toString()));
+    }
     return true;
 }
 

@@ -801,6 +801,19 @@
     </message>
 </context>
 <context>
+    <name>ModeFlow::Services::HotkeyManager</name>
+    <message>
+        <source>These shortcuts are already used by another application, so the profiles will not react to them:
+%1</source>
+        <translation>Другое приложение уже использует эти сочетания, поэтому профили на них не отреагируют:
+%1</translation>
+    </message>
+    <message>
+        <source>The &apos;Next profile&apos; shortcut %1 is already used by another application, so it will not work.</source>
+        <translation>Сочетание %1 для действия «Следующий профиль» занято другим приложением, поэтому работать не будет.</translation>
+    </message>
+</context>
+<context>
     <name>ModeFlow::Services::UpdateService</name>
     <message>
         <source>Invalid update manifest</source>

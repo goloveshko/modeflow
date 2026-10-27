@@ -23,6 +23,8 @@ void ServiceWiring::wireErrorConnections(AppServices& s, AppController* controll
                      &AppController::showNonBlockingError, Qt::UniqueConnection);
     QObject::connect(s.appLauncher.get(), &Services::AppLauncher::errorOccurred, controller,
                      &AppController::showNonBlockingError, Qt::UniqueConnection);
+    QObject::connect(s.hotkeyManager.get(), &Services::HotkeyManager::errorOccurred, controller,
+                     &AppController::showNonBlockingError, Qt::UniqueConnection);
 }
 
 void ServiceWiring::wireServiceConnections(AppServices& s, AppController* controller) {
