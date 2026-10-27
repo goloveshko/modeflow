@@ -665,6 +665,7 @@ private slots:
     void workspaceService_directDisplaySwitchReportsFailure();
     void workspaceService_directDisplaySwitchBlocksProfileApply();
     void workspaceService_closesOutgoingAppsAfterDisplayIsConfirmed();
+    void workspaceService_reappliedProfileKeepsItsOwnApplications();
     void workspaceService_failedDisplaySwitchKeepsOutgoingAppsOpen();
     void workspaceService_displayTimeoutKeepsOutgoingAppsOpen();
     void systemUtils_heldProcessHandleProvesTheProcessIsAlive();
@@ -676,6 +677,10 @@ private slots:
     void appLauncher_sequenceLaunchesValidExecutable();
     void appLauncher_delayedLaunchIsScheduledAndReportsLateError();
     void appLauncher_cancelledDelayedLaunchNeverStarts();
+    void appLauncher_stillToStartSkipsPathsTheProfileAlreadyOwns();
+    void appLauncher_runningApplicationIsNotStartedTwice();
+    void appLauncher_leavingAProfileClosesOnlyTheApplicationsItOwns();
+    void appLauncher_scheduledDelayedLaunchIsNotScheduledTwice();
 
     void appLaunchConfig_jsonRoundTrip();
     void workspaceConfig_appsToLaunchJsonRoundTrip();
@@ -1616,6 +1621,35 @@ void ModeFlowTests::workspaceService_closesOutgoingAppsAfterDisplayIsConfirmed()
     QCOMPARE(launcher.m_launchSequenceCount, 1);
 }
 
+void ModeFlowTests::workspaceService_reappliedProfileKeepsItsOwnApplications() {
+    using ModeFlow::Core::WorkspaceConfig;
+    using Service = ModeFlow::Core::WorkspaceService;
+
+    FakeDisplayManagerForWS display;
+    display.m_currentDisplayKey = QStringLiteral("display-1");
+    FakeAudioDeviceManagerForWS audio;
+    FakeAppLauncherForWS launcher;
+
+    Service service(&display, &audio, &launcher);
+
+    WorkspaceConfig config = profileWithApps(QStringLiteral("pA"), QStringLiteral("display-1"));
+    service.applyWorkspaceConfig(config);
+    QCOMPARE(launcher.m_launchSequenceCount, 1);
+
+    // Applying the profile that is already current tears nothing down: its scheduled launches stay
+    // scheduled, its windows stay open, and the list still reaches the launcher, which drops what
+    // the profile already owns.
+    service.applyWorkspaceConfig(config);
+    QCOMPARE(launcher.m_launchSequenceCount, 2);
+    QVERIFY(launcher.m_cancelledProfileIds.isEmpty());
+    QVERIFY(launcher.m_closedProfileIds.isEmpty());
+
+    // Leaving for another profile is a real switch, so both clean-up calls come back.
+    service.applyWorkspaceConfig(makeProfileForSwitch(QStringLiteral("pB"), QStringLiteral("display-1")));
+    QCOMPARE(launcher.m_cancelledProfileIds, QStringList{QStringLiteral("pA")});
+    QCOMPARE(launcher.m_closedProfileIds, QStringList{QStringLiteral("pA")});
+}
+
 void ModeFlowTests::workspaceService_failedDisplaySwitchKeepsOutgoingAppsOpen() {
     using ModeFlow::Core::WorkspaceConfig;
     using Service = ModeFlow::Core::WorkspaceService;
@@ -1704,6 +1738,26 @@ QString makeLaunchableExecutable(const QString& tag) {
 
     return QString();
 }
+
+// Stands in for a launched application without spawning one: the test process is certainly alive
+// while its own record is tracked, so the "already running" answer cannot drift with timing.
+class CountingAppLauncher : public ModeFlow::Services::AppLauncher {
+public:
+    qint64 execute(const QString& path) override {
+        ++m_executeCount;
+        m_lastPath = path;
+        return QCoreApplication::applicationPid();
+    }
+
+    bool askProcessToClose(qint64 pid) const override {
+        m_closedPids.append(pid);
+        return true;
+    }
+
+    int m_executeCount = 0;
+    QString m_lastPath;
+    mutable QList<qint64> m_closedPids;
+};
 } // namespace
 
 void ModeFlowTests::appLauncher_sequenceSkipsEmptyPaths() {
@@ -1781,8 +1835,13 @@ void ModeFlowTests::appLauncher_sequenceLaunchesValidExecutable() {
     QVERIFY(launcher.launchSequence(QStringLiteral("p1"), {app}));
     QCOMPARE(errorSpy.count(), 0);
 
-    // The copied image stays locked while the process runs, so give it a moment to finish first.
-    QTest::qWait(300);
+    // The record of a launched application is what keeps a second copy from starting...
+    QCOMPARE(launcher.activeLaunchKeys(QStringLiteral("p1")).size(), 1);
+
+    // ...and an application that has since exited must not block the profile next time it is applied.
+    // The copied image stays locked while the process runs, so wait for it to finish before removal.
+    QTest::qWait(1500);
+    QVERIFY(launcher.activeLaunchKeys(QStringLiteral("p1")).isEmpty());
     QFile::remove(exe);
 }
 
@@ -1818,6 +1877,134 @@ void ModeFlowTests::appLauncher_cancelledDelayedLaunchNeverStarts() {
     // An attempt would have surfaced through validation, so silence here proves nothing was launched.
     QTest::qWait(1600);
     QCOMPARE(errorSpy.count(), 0);
+}
+
+void ModeFlowTests::appLauncher_stillToStartSkipsPathsTheProfileAlreadyOwns() {
+    using ModeFlow::Core::AppLaunchConfig;
+    using ModeFlow::Services::AppLauncher;
+
+    auto entry = [](const QString& path) {
+        AppLaunchConfig app;
+        app.appPath = path;
+        return app;
+    };
+
+    const QList<AppLaunchConfig> apps = {entry(QStringLiteral("C:\\Temp\\a.exe")),
+                                         entry(QStringLiteral("C:/Temp/b.exe")), AppLaunchConfig{}};
+    const QStringList owned = {AppLauncher::launchKey(QStringLiteral("c:\\temp\\A.EXE"))};
+
+    // The same file written differently is the application the profile already has, and an entry
+    // without a path is not an application at all.
+    const QList<AppLaunchConfig> missing = AppLauncher::appsStillToStart(apps, owned);
+    QCOMPARE(missing.size(), 1);
+    QCOMPARE(missing.first().appPath, QStringLiteral("C:/Temp/b.exe"));
+
+    const QList<AppLaunchConfig> repeated = {entry(QStringLiteral("C:\\Temp\\a.exe")),
+                                             entry(QStringLiteral("C:\\TEMP\\a.exe"))};
+    QCOMPARE(AppLauncher::appsStillToStart(repeated, QStringList()).size(), 1);
+    QCOMPARE(AppLauncher::appsStillToStart(apps, QStringList()).size(), 2);
+}
+
+void ModeFlowTests::appLauncher_runningApplicationIsNotStartedTwice() {
+    using ModeFlow::Core::AppLaunchConfig;
+
+    const QString editor = makeLaunchableExecutable(QStringLiteral("tracked"));
+    const QString viewer = makeLaunchableExecutable(QStringLiteral("tracked-other"));
+    QVERIFY(!editor.isEmpty());
+    QVERIFY(!viewer.isEmpty());
+    const auto cleanup = qScopeGuard([&editor, &viewer] {
+        QFile::remove(editor);
+        QFile::remove(viewer);
+    });
+
+    AppLaunchConfig owned;
+    owned.appPath = editor;
+    owned.closeOnExit = true;
+
+    AppLaunchConfig missing;
+    missing.appPath = viewer;
+
+    CountingAppLauncher launcher;
+    QVERIFY(launcher.launchSequence(QStringLiteral("p1"), {owned}));
+    QCOMPARE(launcher.m_executeCount, 1);
+    QCOMPARE(launcher.activeLaunchKeys(QStringLiteral("p1")).size(), 1);
+
+    // Re-applying the profile must leave the running copy alone and still start what is missing.
+    QVERIFY(launcher.launchSequence(QStringLiteral("p1"), {owned, missing}));
+    QCOMPARE(launcher.m_executeCount, 2);
+    QCOMPARE(launcher.m_lastPath, missing.appPath);
+
+    // An application the profile does not own is remembered just the same, so a third apply of the
+    // whole list starts nothing at all.
+    QVERIFY(launcher.launchSequence(QStringLiteral("p1"), {owned, missing}));
+    QCOMPARE(launcher.m_executeCount, 2);
+
+    // Ownership is tracked per profile, so another profile may start the very same executable.
+    QVERIFY(launcher.launchSequence(QStringLiteral("p2"), {owned}));
+    QCOMPARE(launcher.m_executeCount, 3);
+    QCOMPARE(launcher.activeLaunchKeys(QStringLiteral("p2")).size(), 1);
+}
+
+void ModeFlowTests::appLauncher_leavingAProfileClosesOnlyTheApplicationsItOwns() {
+    using ModeFlow::Core::AppLaunchConfig;
+
+    const QString editor = makeLaunchableExecutable(QStringLiteral("owned"));
+    const QString visitor = makeLaunchableExecutable(QStringLiteral("guest"));
+    QVERIFY(!editor.isEmpty());
+    QVERIFY(!visitor.isEmpty());
+    const auto cleanup = qScopeGuard([&editor, &visitor] {
+        QFile::remove(editor);
+        QFile::remove(visitor);
+    });
+
+    AppLaunchConfig owned;
+    owned.appPath = editor;
+    owned.closeOnExit = true;
+
+    AppLaunchConfig guest;
+    guest.appPath = visitor;
+
+    CountingAppLauncher launcher;
+    QVERIFY(launcher.launchSequence(QStringLiteral("p1"), {owned, guest}));
+    QCOMPARE(launcher.activeLaunchKeys(QStringLiteral("p1")).size(), 2);
+
+    launcher.closeProfileProcesses(QStringLiteral("p1"));
+
+    // Tracking now covers every launched application, so the close flag is what decides ownership:
+    // the guest window stays open while the profile leaves, and both are simply forgotten.
+    QCOMPARE(launcher.m_closedPids.size(), 1);
+    QVERIFY(launcher.activeLaunchKeys(QStringLiteral("p1")).isEmpty());
+
+    // Being forgotten is what lets the next visit start them again.
+    QVERIFY(launcher.launchSequence(QStringLiteral("p1"), {owned, guest}));
+    QCOMPARE(launcher.m_executeCount, 4);
+}
+
+void ModeFlowTests::appLauncher_scheduledDelayedLaunchIsNotScheduledTwice() {
+    using ModeFlow::Core::AppLaunchConfig;
+
+    AppLaunchConfig delayed;
+    delayed.appPath = QStringLiteral("C:\\nonexistent\\delayed.exe");
+    delayed.delaySeconds = 1;
+
+    AppLaunchConfig otherDelayed = delayed;
+    otherDelayed.appPath = QStringLiteral("C:\\nonexistent\\other.exe");
+
+    ModeFlow::Services::AppLauncher launcher;
+    QSignalSpy errorSpy(&launcher, &ModeFlow::Services::AppLauncher::errorOccurred);
+
+    QVERIFY(launcher.launchSequence(QStringLiteral("p1"), {delayed}));
+
+    // A pending timer already promises that launch, so the second apply must not add another one:
+    // each scheduled failure reports itself once when its delay expires.
+    QVERIFY(launcher.launchSequence(QStringLiteral("p1"), {delayed}));
+
+    QTest::qWait(1600);
+    QCOMPARE(errorSpy.count(), 1);
+
+    QVERIFY(launcher.launchSequence(QStringLiteral("p1"), {otherDelayed}));
+    QTest::qWait(1600);
+    QCOMPARE(errorSpy.count(), 2);
 }
 
 void ModeFlowTests::hotkeyManager_resolveInitialProfileId_null() {

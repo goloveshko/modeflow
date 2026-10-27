@@ -75,14 +75,74 @@ bool AppLauncher::validateExecutable(const QString& path, QString& error) const 
     return true;
 }
 
+QString AppLauncher::launchKey(const QString& appPath) {
+    return QDir::toNativeSeparators(QFileInfo(appPath).absoluteFilePath());
+}
+
+QList<Core::AppLaunchConfig> AppLauncher::appsStillToStart(const QList<Core::AppLaunchConfig>& apps,
+                                                           const QStringList& activeKeys) {
+    QList<Core::AppLaunchConfig> missing;
+    QStringList claimed = activeKeys;
+
+    for (const auto& app : apps) {
+        if (app.appPath.isEmpty()) {
+            continue;
+        }
+
+        const QString key = launchKey(app.appPath);
+        if (claimed.contains(key, Qt::CaseInsensitive)) {
+            continue;
+        }
+
+        // Two entries naming the same executable in one profile are a duplicate as well.
+        claimed.append(key);
+        missing.append(app);
+    }
+
+    return missing;
+}
+
+QStringList AppLauncher::activeLaunchKeys(const QString& profileId) {
+    QStringList keys;
+
+    auto processesIt = m_activeProcesses.find(profileId);
+    if (processesIt != m_activeProcesses.end()) {
+        // A process the user closed by hand must not keep its profile from starting it again later.
+        for (auto it = processesIt->begin(); it != processesIt->end();) {
+            if (Utils::SystemUtils::isProcessRunning(it->handle)) {
+                keys.append(it->key);
+                ++it;
+                continue;
+            }
+
+            Utils::SystemUtils::closeProcessHandle(it->handle);
+            it = processesIt->erase(it);
+        }
+
+        if (processesIt->isEmpty()) {
+            m_activeProcesses.erase(processesIt);
+        }
+    }
+
+    const auto pendingIt = m_pendingTimers.constFind(profileId);
+    if (pendingIt != m_pendingTimers.constEnd()) {
+        for (const PendingLaunch& pending : *pendingIt) {
+            if (pending.timer && pending.timer->isActive()) {
+                keys.append(pending.key);
+            }
+        }
+    }
+
+    return keys;
+}
+
 bool AppLauncher::launchSequence(const QString& profileId, const QList<Core::AppLaunchConfig>& apps) {
+    const QList<Core::AppLaunchConfig> toStart = appsStillToStart(apps, activeLaunchKeys(profileId));
+
     bool immediateLaunchesAccepted = true;
     int scheduledCount = 0;
 
-    for (const auto& app : apps) {
-        if (app.appPath.isEmpty())
-            continue;
-
+    for (const auto& app : toStart) {
         // If there's a startup delay, we instantiate a trackable QTimer instead of an anonymous singleShot.
         // This allows us to abort the delayed launch if the user switches away from this profile before the delay
         // expires.
@@ -92,9 +152,9 @@ bool AppLauncher::launchSequence(const QString& profileId, const QList<Core::App
             timer->setInterval(std::chrono::seconds(app.delaySeconds));
 
             connect(timer, &QTimer::timeout, this, [this, timer, profileId, app]() {
-                auto& list = m_pendingTimers[profileId];
-                list.removeOne(timer);
-                if (list.isEmpty()) {
+                auto& pending = m_pendingTimers[profileId];
+                pending.removeIf([timer](const PendingLaunch& entry) { return entry.timer == timer; });
+                if (pending.isEmpty()) {
                     m_pendingTimers.remove(profileId);
                 }
                 timer->deleteLater();
@@ -102,7 +162,7 @@ bool AppLauncher::launchSequence(const QString& profileId, const QList<Core::App
                 launchAndTrack(profileId, app);
             });
 
-            m_pendingTimers[profileId].append(timer);
+            m_pendingTimers[profileId].append(PendingLaunch{timer, launchKey(app.appPath)});
             timer->start();
             ++scheduledCount;
         } else if (!launchAndTrack(profileId, app)) {
@@ -125,10 +185,10 @@ void AppLauncher::cancelDelayedLaunches(const QString& profileId) {
 
     qCDebug(lcService) << "Cancelling" << timerIt.value().size() << "pending delayed launches for profile" << profileId;
 
-    for (QTimer* timer : timerIt.value()) {
-        if (timer) {
-            timer->stop();
-            timer->deleteLater();
+    for (const PendingLaunch& pending : timerIt.value()) {
+        if (pending.timer) {
+            pending.timer->stop();
+            pending.timer->deleteLater();
         }
     }
     m_pendingTimers.erase(timerIt);
@@ -148,7 +208,14 @@ void AppLauncher::closeProfileProcesses(const QString& profileId) {
             continue;
         }
 
-        if (Utils::SystemUtils::requestProcessClose(process.pid)) {
+        // Applications the profile does not own stay open when the user leaves it; they are only
+        // remembered no longer, so a later visit can start a fresh copy again.
+        if (!process.closeOnExit) {
+            Utils::SystemUtils::closeProcessHandle(process.handle);
+            continue;
+        }
+
+        if (askProcessToClose(process.pid)) {
             qCDebug(lcService) << "Asked process PID" << process.pid << "to close for profile" << profileId;
         } else {
             qCWarning(lcService) << "Process PID" << process.pid << "has no window to ask, leaving it running";
@@ -176,6 +243,10 @@ qint64 AppLauncher::execute(const QString& path) {
     return pid;
 }
 
+bool AppLauncher::askProcessToClose(qint64 pid) const {
+    return Utils::SystemUtils::requestProcessClose(pid);
+}
+
 bool AppLauncher::launchAndTrack(const QString& profileId, const Core::AppLaunchConfig& app) {
     QString error;
     if (!validateExecutable(app.appPath, error)) {
@@ -191,21 +262,18 @@ bool AppLauncher::launchAndTrack(const QString& profileId, const Core::AppLaunch
         return false;
     }
 
-    if (!app.closeOnExit) {
-        return true;
-    }
-
     void* handle = Utils::SystemUtils::openProcessHandle(pid);
     if (!handle) {
         // Without a handle there is no way to tell later whether this PID still names our process,
         // and closing a stranger's windows is not worth the risk. The application is running, we just
-        // cannot follow it.
+        // cannot follow it or keep a second copy from starting.
         qCWarning(lcService) << "Cannot watch process PID" << pid << ", it will be left running";
         return true;
     }
 
-    m_activeProcesses[profileId].append(TrackedProcess{pid, handle});
-    qCDebug(lcService) << "Tracked process PID" << pid << "for profile" << profileId << "(closeOnExit is active)";
+    m_activeProcesses[profileId].append(TrackedProcess{pid, handle, launchKey(app.appPath), app.closeOnExit});
+    qCDebug(lcService) << "Tracked process PID" << pid << "for profile" << profileId
+                       << (app.closeOnExit ? "(asked to close)" : "(kept running)");
     return true;
 }
 

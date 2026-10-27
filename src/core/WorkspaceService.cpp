@@ -70,8 +70,10 @@ void WorkspaceService::applyWorkspaceConfig(const WorkspaceConfig& config) {
 
     // A delayed launch must not appear on the workspace the user is leaving, so scheduled timers go
     // away right away. Applications that are already running wait for the display switch itself.
+    // Re-applying the profile that is already current keeps them: cancelling and re-scheduling would
+    // delay an application that has not started yet, and its own list is filtered below.
     m_outgoingProfileId = m_pendingConfig.id;
-    if (!m_outgoingProfileId.isEmpty()) {
+    if (!m_outgoingProfileId.isEmpty() && m_outgoingProfileId != config.id) {
         m_appLauncher->cancelDelayedLaunches(m_outgoingProfileId);
     }
 
@@ -192,9 +194,10 @@ void WorkspaceService::finalizeApplication(ApplyStatus status) {
     }
 
     // Closing the outgoing profile's applications only makes sense once the display really moved: a
-    // failed or timed-out switch leaves the user on the old screen, where those windows belong.
+    // failed or timed-out switch leaves the user on the old screen, where those windows belong. The
+    // profile that is being applied again is not an outgoing one, so its windows stay untouched.
     const bool displayStepIsSettled = !m_displaySwitchRequested || m_displayChangeSucceeded;
-    if (displayStepIsSettled && !m_outgoingProfileId.isEmpty()) {
+    if (displayStepIsSettled && !m_outgoingProfileId.isEmpty() && m_outgoingProfileId != m_pendingConfig.id) {
         m_appLauncher->closeProfileProcesses(m_outgoingProfileId);
     }
 
