@@ -633,15 +633,22 @@ Convenience wrappers:
                     }
                 }
 
-                if ($WinDeployQt -and (Test-Path $WinDeployQt)) {
-                    Write-Host "Running windeployqt on staging folder for portable shared package..." -ForegroundColor Gray
-                    $StagingExe = Join-Path $StagingDir $AppName
-                    $CfgFlag = "--$($Config.ToLower())"
-                    & $WinDeployQt $CfgFlag --compiler-runtime $StagingExe
-                    Write-Success "Qt dependencies deployed to staging directory."
-                } else {
-                    Write-Warn "windeployqt.exe not found, skipping Qt DLL deployment."
+                if (-not $WinDeployQt -or -not (Test-Path $WinDeployQt)) {
+                    Write-Err "windeployqt.exe not found! A shared package without Qt plugins would not start."
+                    Remove-Item -Path $StagingDir -Recurse -Force
+                    exit 1
                 }
+
+                Write-Host "Running windeployqt on staging folder for portable shared package..." -ForegroundColor Gray
+                $StagingExe = Join-Path $StagingDir $AppName
+                $CfgFlag = "--$($Config.ToLower())"
+                & $WinDeployQt $CfgFlag --compiler-runtime $StagingExe
+                if ($LASTEXITCODE -ne 0) {
+                    Write-Err "windeployqt failed for the staging package with exit code $LASTEXITCODE!"
+                    Remove-Item -Path $StagingDir -Recurse -Force
+                    exit $LASTEXITCODE
+                }
+                Write-Success "Qt dependencies deployed to staging directory."
             }
 
             $LicenseSrc = Get-ChildItem -Path $RootDir -Filter "LICENSE*" | Select-Object -First 1
