@@ -15,6 +15,7 @@
 
 // Explicitly include required Qt and core types
 #include <QDir>
+#include <QElapsedTimer>
 #include <QFile>
 #include <QFileInfo>
 #include <QJsonDocument>
@@ -22,6 +23,7 @@
 #include <QPair>
 #include <QPoint>
 #include <QScopeGuard>
+#include <QSemaphore>
 #include <QSize>
 #include <QStandardPaths>
 #include <QTemporaryDir>
@@ -30,6 +32,7 @@
 #include <atomic>
 #include <memory>
 #include <optional>
+#include <thread>
 #include <vector>
 
 #ifdef Q_OS_WIN
@@ -462,6 +465,32 @@ private:
     std::vector<std::unique_ptr<QPromise<bool>>> m_pendingPromises;
 };
 
+// State of a switch that is stuck inside the blocking system call. It lives outside the manager, so a
+// test can still observe the worker after the manager itself is gone.
+struct HeldSwitch {
+    QSemaphore entered{0};
+    QSemaphore release{0};
+    QString target;
+    std::atomic_bool finished{false};
+};
+
+class HoldingDisplayManager : public ModeFlow::Services::DisplayManager {
+public:
+    explicit HoldingDisplayManager(std::shared_ptr<HeldSwitch> state)
+        : DisplayManager(nullptr), m_state(std::move(state)) {}
+
+    QString applyDisplayConfiguration(const QString& displayId) override {
+        const auto state = m_state; // leave the object behind before the slow part
+        state->target = displayId;
+        state->entered.release();
+        state->release.acquire();
+        state->finished = true;
+        return {};
+    }
+
+    std::shared_ptr<HeldSwitch> m_state;
+};
+
 class FakeAudioDeviceManagerForWS : public ModeFlow::Services::AudioDeviceManager {
     Q_OBJECT
 public:
@@ -754,6 +783,7 @@ private slots:
 
     void displayManager_parseMonitorKey_valid();
     void displayManager_parseMonitorKey_invalid();
+    void displayManager_destructionWaitsForAnInFlightSwitch();
 
     void winKeyTranslator_translatesCorrectly();
 
@@ -2265,6 +2295,33 @@ void ModeFlowTests::displayManager_parseMonitorKey_invalid() {
     QVERIFY(!ModeFlow::Services::DisplayManager::parseMonitorKey(QStringLiteral("1_2"), adapterId, targetId));
     QVERIFY(!ModeFlow::Services::DisplayManager::parseMonitorKey(QStringLiteral("1_2_3_4"), adapterId, targetId));
     QVERIFY(!ModeFlow::Services::DisplayManager::parseMonitorKey(QStringLiteral("x_y_z"), adapterId, targetId));
+}
+
+void ModeFlowTests::displayManager_destructionWaitsForAnInFlightSwitch() {
+    auto state = std::make_shared<HeldSwitch>();
+    auto manager = std::make_unique<HoldingDisplayManager>(state);
+    const QFuture<bool> switching = manager->setDisplayModeAsync(QStringLiteral("display-1"));
+
+    // The worker is now inside the blocking system call.
+    QVERIFY(state->entered.tryAcquire(1, 5000));
+    QCOMPARE(state->target, QStringLiteral("display-1"));
+
+    // The switch ends only from another thread: the GUI thread is the one that quits.
+    std::thread releaser([state]() {
+        QThread::msleep(100);
+        state->release.release();
+    });
+
+    QElapsedTimer timer;
+    timer.start();
+    manager.reset();
+    const qint64 waited = timer.elapsed();
+    releaser.join();
+
+    // Freeing the manager must wait for the worker that still reports back into it.
+    QVERIFY2(waited >= 50, qPrintable(QStringLiteral("destructor returned after %1 ms").arg(waited)));
+    QVERIFY(state->finished.load());
+    QVERIFY(switching.isFinished());
 }
 
 void ModeFlowTests::appLaunchConfig_jsonRoundTrip() {

@@ -1,6 +1,7 @@
 ﻿#include "DisplayManager.h"
 
 #include <QGuiApplication>
+#include <QScopeGuard>
 
 #include "Constants.h"
 #include "Logging.h"
@@ -24,6 +25,16 @@ DisplayManager::DisplayManager(QObject* parent) : QObject(parent) {
     connect(m_debounceTimer, &QTimer::timeout, this, &DisplayManager::refreshMonitorCache);
 
     updateCacheInternal();
+}
+
+DisplayManager::~DisplayManager() {
+    // The application can quit in the middle of a display switch, which is a long blocking OS call that
+    // reports back into this object. Shutdown is the only place allowed to wait for it: ordinary use
+    // never blocks the GUI thread here.
+    QMutexLocker locker(&m_switchMutex);
+    while (m_runningSwitches > 0) {
+        m_switchFinished.wait(&m_switchMutex);
+    }
 }
 
 bool DisplayManager::parseMonitorKey(const QString& key, WinLuid& outAdapterId, unsigned int& outTargetId) {
@@ -152,6 +163,18 @@ std::optional<MonitorInfo> DisplayManager::findMonitorByKey(const QString& key) 
 }
 
 bool DisplayManager::setDisplayMode(const QString& targetDevicePath) {
+    const QString error = applyDisplayConfiguration(targetDevicePath);
+    if (!error.isEmpty()) {
+        emit errorOccurred(error);
+        return false;
+    }
+
+    qCDebug(lcService) << "Successfully switched display";
+    QMetaObject::invokeMethod(this, &DisplayManager::onSystemDisplaysChanged, Qt::QueuedConnection);
+    return true;
+}
+
+QString DisplayManager::applyDisplayConfiguration(const QString& targetDevicePath) {
     UINT32 pathCount = 0, modeCount = 0;
     LONG status;
 
@@ -159,8 +182,7 @@ bool DisplayManager::setDisplayMode(const QString& targetDevicePath) {
     status = GetDisplayConfigBufferSizes(QDC_ALL_PATHS, &pathCount, &modeCount);
     if (status != ERROR_SUCCESS) {
         qCWarning(lcService) << "GetDisplayConfigBufferSizes failed:" << status;
-        emit errorOccurred(tr("Failed to query display configuration (error code: %1)").arg(status));
-        return false;
+        return tr("Failed to query display configuration (error code: %1)").arg(status);
     }
 
     std::vector<DISPLAYCONFIG_PATH_INFO> paths(pathCount);
@@ -177,8 +199,7 @@ bool DisplayManager::setDisplayMode(const QString& targetDevicePath) {
 
     if (status != ERROR_SUCCESS) {
         qCWarning(lcService) << "QueryDisplayConfig failed:" << status;
-        emit errorOccurred(tr("Failed to query display paths (error code: %1)").arg(status));
-        return false;
+        return tr("Failed to query display paths (error code: %1)").arg(status);
     }
 
     std::vector<DISPLAYCONFIG_PATH_INFO> targetPaths;
@@ -206,8 +227,7 @@ bool DisplayManager::setDisplayMode(const QString& targetDevicePath) {
 
     if (targetPaths.empty()) {
         qCWarning(lcService) << "Could not find monitor with Device Path:" << targetDevicePath;
-        emit errorOccurred(tr("Target display not found: %1").arg(targetDevicePath));
-        return false;
+        return tr("Target display not found: %1").arg(targetDevicePath);
     }
 
     status = SetDisplayConfig((UINT32)targetPaths.size(), targetPaths.data(), 0, NULL,
@@ -215,9 +235,7 @@ bool DisplayManager::setDisplayMode(const QString& targetDevicePath) {
                                   /*SDC_FORCE_MODE_ENUMERATION |*/ SDC_SAVE_TO_DATABASE);
 
     if (status == ERROR_SUCCESS) {
-        qCDebug(lcService) << "Successfully switched display";
-        QMetaObject::invokeMethod(this, &DisplayManager::onSystemDisplaysChanged, Qt::QueuedConnection);
-        return true;
+        return {};
     }
 
     if (status == ERROR_ACCESS_DENIED) {
@@ -225,12 +243,24 @@ bool DisplayManager::setDisplayMode(const QString& targetDevicePath) {
     }
 
     qCWarning(lcService) << "Failed to apply display configuration. Error code:" << status;
-    emit errorOccurred(tr("Failed to apply display configuration (error code: %1)").arg(status));
-    return false;
+    return tr("Failed to apply display configuration (error code: %1)").arg(status);
 }
 
 QFuture<bool> DisplayManager::setDisplayModeAsync(const QString& displayId) {
-    return QtConcurrent::run([this, displayId]() { return setDisplayMode(displayId); });
+    {
+        QMutexLocker locker(&m_switchMutex);
+        ++m_runningSwitches;
+    }
+
+    return QtConcurrent::run([this, displayId]() {
+        const auto markFinished = qScopeGuard([this]() {
+            QMutexLocker locker(&m_switchMutex);
+            --m_runningSwitches;
+            m_switchFinished.wakeAll();
+        });
+
+        return setDisplayMode(displayId);
+    });
 }
 
 void DisplayManager::onSystemDisplaysChanged() {

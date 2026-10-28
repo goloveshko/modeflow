@@ -2,6 +2,7 @@
 
 #include <QMutex>
 #include <QObject>
+#include <QWaitCondition>
 #include <QtConcurrent>
 
 namespace ModeFlow::Services {
@@ -34,6 +35,7 @@ class DisplayManager : public QObject {
     Q_OBJECT
 public:
     explicit DisplayManager(QObject* parent = nullptr);
+    ~DisplayManager() override;
 
     virtual QFuture<bool> setDisplayModeAsync(const QString& displayId);
 
@@ -50,11 +52,25 @@ private:
     void updateCacheInternal();
     bool setDisplayMode(const QString& targetDevicePath);
 
+protected:
+    /**
+     * @brief Blocking part of a switch: talks to the operating system and returns an error instead of
+     * reaching back into the manager, so a worker thread can call it without touching object state.
+     * @return An empty string on success, otherwise the message for the user.
+     */
+    virtual QString applyDisplayConfiguration(const QString& displayId);
+
 private:
     QString m_currentDisplayKeyCache;
     QList<MonitorInfo> m_monitorCache;
     mutable QMutex m_mutex;
     QTimer* m_debounceTimer = nullptr;
+
+    // A switch runs off the GUI thread and comes back into this object when it ends, so the destructor
+    // has to let running switches finish before the memory goes away.
+    QMutex m_switchMutex;
+    QWaitCondition m_switchFinished;
+    int m_runningSwitches = 0;
 
 signals:
     void displaysChanged();
