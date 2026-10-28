@@ -3,6 +3,8 @@
 #include <QTimer>
 #include <QtConcurrent>
 
+#include <utility>
+
 #include "AppLauncher.h"
 #include "AudioDeviceManager.h"
 #include "Constants.h"
@@ -24,7 +26,8 @@ WorkspaceService::WorkspaceService(Services::DisplayManager* displayManager, Ser
                                    Services::AppLauncher* appLauncher, QObject* parent)
     : QObject(parent), m_displayManager(displayManager), m_audioManager(audioManager), m_appLauncher(appLauncher),
       m_displayTimeoutTimer(std::make_unique<QTimer>()), m_windowRestoreTimer(std::make_unique<QTimer>()),
-      m_displayTimeoutMs(Utils::DisplaySwitchTimeoutMs) {
+      m_undoExpiryTimer(std::make_unique<QTimer>()), m_displayTimeoutMs(Utils::DisplaySwitchTimeoutMs),
+      m_undoTimeoutMs(Utils::WindowRestoreUndoAvailableMs) {
     if (!displayManager || !audioManager || !appLauncher) {
         qCFatal(lcCore) << "WorkspaceService: Dependencies must not be null";
         return;
@@ -32,9 +35,11 @@ WorkspaceService::WorkspaceService(Services::DisplayManager* displayManager, Ser
 
     m_displayTimeoutTimer->setSingleShot(true);
     m_windowRestoreTimer->setSingleShot(true);
+    m_undoExpiryTimer->setSingleShot(true);
 
     connect(m_displayTimeoutTimer.get(), &QTimer::timeout, this, &WorkspaceService::onDisplayTimeout);
     connect(m_windowRestoreTimer.get(), &QTimer::timeout, this, &WorkspaceService::restoreWindowLayout);
+    connect(m_undoExpiryTimer.get(), &QTimer::timeout, this, &WorkspaceService::clearWindowRestoreUndo);
 
     // Monitor system display changes to verify if our switch was successful
     connect(m_displayManager, &Services::DisplayManager::displaysChanged, this, &WorkspaceService::onDisplayChanged);
@@ -66,6 +71,24 @@ void WorkspaceService::setRememberWindowLayouts(bool enabled) {
     m_rememberWindowLayouts = enabled;
 }
 
+void WorkspaceService::setWindowRestoreUndoTimeout(int ms) {
+    m_undoTimeoutMs = ms;
+}
+
+void WorkspaceService::undoWindowRestore() {
+    if (m_undoLayout.isEmpty() || m_windowLayouts == nullptr) {
+        return;
+    }
+
+    const QList<Services::WindowPlacement> snapshot = std::move(m_undoLayout);
+    m_undoLayout.clear();
+    m_undoExpiryTimer->stop();
+    emit windowRestoreUndoAvailable(false);
+
+    const int placed = m_windowLayouts->restore(snapshot);
+    qCDebug(lcCore) << "Window restore undone:" << placed << "of" << snapshot.size() << "windows placed.";
+}
+
 void WorkspaceService::applyWorkspaceConfig(const WorkspaceConfig& config) {
     if (isSwitchInProgress()) {
         qCWarning(lcCore) << "Another switch is in progress, ignoring profile:" << config.name;
@@ -76,8 +99,10 @@ void WorkspaceService::applyWorkspaceConfig(const WorkspaceConfig& config) {
     qCDebug(lcCore) << "Applying profile:" << config.name;
 
     m_displayTimeoutTimer->stop();
-    // A restore that has not run yet belongs to the switch this request replaces.
+    // A restore that has not run yet belongs to the switch this request replaces, and its undo
+    // would now move windows across a topology the user has already left.
     m_windowRestoreTimer->stop();
+    clearWindowRestoreUndo();
     m_isWaitingForDisplay = false;
     m_isApplyingProfile = true;
     const quint64 operationId = ++m_operationId;
@@ -155,6 +180,7 @@ void WorkspaceService::switchDisplayDirectly(const QString& displayId) {
     ++m_operationId;
     m_isSwitchingDisplay = true;
     m_windowRestoreTimer->stop();
+    clearWindowRestoreUndo();
     rememberCurrentWindowLayout();
 
     m_displayManager->setDisplayModeAsync(displayId).then(this, [this, displayId](bool success) {
@@ -296,8 +322,30 @@ void WorkspaceService::restoreWindowLayout() {
         return;
     }
 
+    // Taken immediately before the move: this is what an undo has to bring back, rather than a
+    // layout that was remembered on some earlier visit to these screens.
+    const QList<Services::WindowPlacement> beforeRestore = m_windowLayouts->capture();
     const int placed = m_windowLayouts->restore(layout);
     qCDebug(lcCore) << "Window layout restored:" << placed << "of" << layout.size() << "windows placed.";
+
+    if (placed <= 0) {
+        return;
+    }
+
+    m_undoLayout = beforeRestore;
+    m_undoExpiryTimer->start(m_undoTimeoutMs);
+    emit windowRestoreUndoAvailable(true);
+}
+
+void WorkspaceService::clearWindowRestoreUndo() {
+    m_undoExpiryTimer->stop();
+
+    if (m_undoLayout.isEmpty()) {
+        return;
+    }
+
+    m_undoLayout.clear();
+    emit windowRestoreUndoAvailable(false);
 }
 
 QString WorkspaceService::applyStatusName(WorkspaceService::ApplyStatus status) {

@@ -728,6 +728,10 @@
         <translation>Открыть ModeFlow</translation>
     </message>
     <message>
+        <source>Undo window restore</source>
+        <translation>Отменить восстановление окон</translation>
+    </message>
+    <message>
         <source>Profiles</source>
         <translation>Профили</translation>
     </message>

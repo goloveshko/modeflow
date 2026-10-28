@@ -66,6 +66,11 @@ constexpr int WindowLayoutRestoreDelayMs = 800;
 static_assert(WindowLayoutRestoreDelayMs > DisplayDebounceIntervalMs && WindowLayoutRestoreDelayMs <= 5000,
               "WindowLayoutRestoreDelayMs must outlast the display debounce and stay under 5s");
 
+/** How long the temporary "Undo window restore" action stays available (ms) */
+constexpr int WindowRestoreUndoAvailableMs = 60000;
+static_assert(WindowRestoreUndoAvailableMs >= 1000 && WindowRestoreUndoAvailableMs <= 300000,
+              "WindowRestoreUndoAvailableMs must be between 1s and 5min");
+
 // ============================================================================
 // Sizes and Limits
 // ============================================================================

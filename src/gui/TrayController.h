@@ -24,6 +24,13 @@ public slots:
     void retranslateUi();
     void activeDialogChanged(Core::ActiveDialog activeDialog);
 
+    /**
+     * @brief Show or hide the temporary action that undoes the last window restore.
+     *
+     * A dialog would interrupt every switch, so the offer lives in the tray menu and expires there.
+     */
+    void setWindowRestoreUndoAvailable(bool available);
+
 private slots:
     void rebuildMenu();
     void onMenuAboutToShow();
@@ -46,6 +53,7 @@ private:
 
     Core::IWorkspaceManager* m_workspaceManager;
     Core::ActiveDialog m_activeDialog = Core::ActiveDialog::None;
+    bool m_windowRestoreUndoAvailable = false;
 
 signals:
     void showMainWindow();
@@ -54,6 +62,7 @@ signals:
     void activateProfile(const Core::WorkspaceConfig& config);
     void switchDisplay(const QString& displayId);
     void switchAudio(const QString& audioId);
+    void undoWindowRestoreRequested();
     void signalExitRequested();
 };
 } // namespace ModeFlow::Gui

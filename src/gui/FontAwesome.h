@@ -28,6 +28,7 @@ public:
 
     static inline const QString FileLines = QString::fromUcs4(U"\uf15c");
     static inline const QString RotateRight = QString::fromUcs4(U"\uf2f9");
+    static inline const QString Undo = QString::fromUcs4(U"\uf0e2");
     static inline const QString Copy = QString::fromUcs4(U"\uf0c5");
     static inline const QString FloppyDisk = QString::fromUcs4(U"\uf0c7");
     static inline const QString ArrowDown = QString::fromUcs4(U"\uf063");

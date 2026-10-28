@@ -820,6 +820,10 @@ private slots:
     void workspaceService_disabledWindowLayoutsLeaveWindowsAlone();
     void workspaceService_timedOutSwitchDoesNotRestoreWindows();
     void workspaceService_directDisplaySwitchRestoresTheTargetLayout();
+    void workspaceService_windowRestoreCanBeUndone();
+    void workspaceService_windowRestoreUndoExpires();
+    void workspaceService_aNewSwitchWithdrawsTheWindowRestoreUndo();
+    void workspaceService_restoreThatMovedNothingOffersNoUndo();
     void systemUtils_heldProcessHandleProvesTheProcessIsAlive();
 
     void windowLayouts_captureKeepsTheStateOfEveryLiveWindow();
@@ -2053,6 +2057,167 @@ void ModeFlowTests::workspaceService_directDisplaySwitchRestoresTheTargetLayout(
 
     QTRY_COMPARE_WITH_TIMEOUT(backend.m_placed.size(), 1, 5000);
     QCOMPARE(backend.m_placed.at(0).geometry, QRect(1920, 40, 640, 480));
+}
+
+void ModeFlowTests::workspaceService_windowRestoreCanBeUndone() {
+    using ModeFlow::Core::WorkspaceService;
+    using ModeFlow::Services::WindowLayouts;
+
+    FakeWindowBackend backend;
+    // The system drops the window where it likes after the switch, not where the layout wants it.
+    backend.m_live = {liveWindow(42, 1000, QStringLiteral("Editor"), 7, QRect(0, 0, 400, 300))};
+
+    QString topology = QStringLiteral("screens-a");
+    WindowLayouts layouts(&backend, {}, [&topology]() { return topology; });
+    layouts.remember(QStringLiteral("screens-b"),
+                     {savedPlacement(42, 1000, QStringLiteral("Editor"), 7, QRect(1920, 40, 640, 480))});
+
+    FakeDisplayManagerForWS display;
+    display.m_currentDisplayKey = QStringLiteral("display-1");
+    FakeAudioDeviceManagerForWS audio;
+    FakeAppLauncherForWS launcher;
+
+    WorkspaceService service(&display, &audio, &launcher);
+    service.setWindowLayouts(&layouts);
+    service.setRememberWindowLayouts(true);
+    service.setWindowRestoreUndoTimeout(10000);
+    QSignalSpy undoSpy(&service, &WorkspaceService::windowRestoreUndoAvailable);
+
+    service.switchDisplayDirectly(QStringLiteral("display-2"));
+    topology = QStringLiteral("screens-b");
+
+    QTRY_COMPARE_WITH_TIMEOUT(backend.m_placed.size(), 1, 5000);
+    QCOMPARE(backend.m_placed.at(0).geometry, QRect(1920, 40, 640, 480));
+    QCOMPARE(undoSpy.count(), 1);
+    QCOMPARE(undoSpy.at(0).at(0).toBool(), true);
+
+    service.undoWindowRestore();
+
+    // The undo returns the window to the place it had right before the restore, not to a layout
+    // remembered on an earlier visit.
+    QCOMPARE(backend.m_placed.size(), 2);
+    QCOMPARE(backend.m_placed.at(1).geometry, QRect(0, 0, 400, 300));
+    QCOMPARE(undoSpy.count(), 2);
+    QCOMPARE(undoSpy.at(1).at(0).toBool(), false);
+
+    // Once taken, the offer is gone: a second click moves nothing and says nothing.
+    service.undoWindowRestore();
+    QCOMPARE(backend.m_placed.size(), 2);
+    QCOMPARE(undoSpy.count(), 2);
+}
+
+void ModeFlowTests::workspaceService_windowRestoreUndoExpires() {
+    using ModeFlow::Core::WorkspaceService;
+    using ModeFlow::Services::WindowLayouts;
+
+    FakeWindowBackend backend;
+    backend.m_live = {liveWindow(42, 1000, QStringLiteral("Editor"), 7, QRect(0, 0, 400, 300))};
+
+    QString topology = QStringLiteral("screens-a");
+    WindowLayouts layouts(&backend, {}, [&topology]() { return topology; });
+    layouts.remember(QStringLiteral("screens-b"),
+                     {savedPlacement(42, 1000, QStringLiteral("Editor"), 7, QRect(1920, 40, 640, 480))});
+
+    FakeDisplayManagerForWS display;
+    display.m_currentDisplayKey = QStringLiteral("display-1");
+    FakeAudioDeviceManagerForWS audio;
+    FakeAppLauncherForWS launcher;
+
+    WorkspaceService service(&display, &audio, &launcher);
+    service.setWindowLayouts(&layouts);
+    service.setRememberWindowLayouts(true);
+    service.setWindowRestoreUndoTimeout(300);
+    QSignalSpy undoSpy(&service, &WorkspaceService::windowRestoreUndoAvailable);
+
+    service.switchDisplayDirectly(QStringLiteral("display-2"));
+    topology = QStringLiteral("screens-b");
+
+    QTRY_COMPARE_WITH_TIMEOUT(backend.m_placed.size(), 1, 5000);
+    QCOMPARE(undoSpy.count(), 1);
+    QCOMPARE(undoSpy.at(0).at(0).toBool(), true);
+
+    // The offer is temporary: it withdraws itself without any further user action.
+    QTRY_VERIFY_WITH_TIMEOUT(undoSpy.count() == 2, 2000);
+    QCOMPARE(undoSpy.at(1).at(0).toBool(), false);
+
+    service.undoWindowRestore();
+    QCOMPARE(backend.m_placed.size(), 1);
+}
+
+void ModeFlowTests::workspaceService_aNewSwitchWithdrawsTheWindowRestoreUndo() {
+    using ModeFlow::Core::WorkspaceService;
+    using ModeFlow::Services::WindowLayouts;
+
+    FakeWindowBackend backend;
+    backend.m_live = {liveWindow(42, 1000, QStringLiteral("Editor"), 7, QRect(0, 0, 400, 300))};
+
+    QString topology = QStringLiteral("screens-a");
+    WindowLayouts layouts(&backend, {}, [&topology]() { return topology; });
+    layouts.remember(QStringLiteral("screens-b"),
+                     {savedPlacement(42, 1000, QStringLiteral("Editor"), 7, QRect(1920, 40, 640, 480))});
+
+    FakeDisplayManagerForWS display;
+    display.m_currentDisplayKey = QStringLiteral("display-1");
+    FakeAudioDeviceManagerForWS audio;
+    FakeAppLauncherForWS launcher;
+
+    WorkspaceService service(&display, &audio, &launcher);
+    service.setWindowLayouts(&layouts);
+    service.setRememberWindowLayouts(true);
+    service.setWindowRestoreUndoTimeout(10000);
+    QSignalSpy undoSpy(&service, &WorkspaceService::windowRestoreUndoAvailable);
+
+    service.switchDisplayDirectly(QStringLiteral("display-2"));
+    topology = QStringLiteral("screens-b");
+    QTRY_COMPARE_WITH_TIMEOUT(backend.m_placed.size(), 1, 5000);
+    QCOMPARE(undoSpy.at(0).at(0).toBool(), true);
+
+    // A new transition makes the old snapshot irrelevant, so the offer is withdrawn at once and a
+    // late click cannot drag windows into a topology the user has already left.
+    const int placedBefore = backend.m_placed.size();
+    service.switchDisplayDirectly(QStringLiteral("display-3"));
+
+    QCOMPARE(undoSpy.count(), 2);
+    QCOMPARE(undoSpy.at(1).at(0).toBool(), false);
+
+    service.undoWindowRestore();
+    QCOMPARE(backend.m_placed.size(), placedBefore);
+}
+
+void ModeFlowTests::workspaceService_restoreThatMovedNothingOffersNoUndo() {
+    using ModeFlow::Core::WorkspaceService;
+    using ModeFlow::Services::WindowLayouts;
+
+    FakeWindowBackend backend;
+    // The window the layout was saved for has restarted since, so nothing in it can be matched.
+    backend.m_live = {liveWindow(42, 2000, QStringLiteral("Editor"), 7, QRect(0, 0, 400, 300))};
+
+    QString topology = QStringLiteral("screens-a");
+    WindowLayouts layouts(&backend, {}, [&topology]() { return topology; });
+    layouts.remember(QStringLiteral("screens-b"),
+                     {savedPlacement(42, 1000, QStringLiteral("Editor"), 7, QRect(1920, 40, 640, 480))});
+
+    FakeDisplayManagerForWS display;
+    display.m_currentDisplayKey = QStringLiteral("display-1");
+    FakeAudioDeviceManagerForWS audio;
+    FakeAppLauncherForWS launcher;
+
+    WorkspaceService service(&display, &audio, &launcher);
+    service.setWindowLayouts(&layouts);
+    service.setRememberWindowLayouts(true);
+    QSignalSpy undoSpy(&service, &WorkspaceService::windowRestoreUndoAvailable);
+
+    service.switchDisplayDirectly(QStringLiteral("display-2"));
+    topology = QStringLiteral("screens-b");
+    QTest::qWait(ModeFlow::Utils::WindowLayoutRestoreDelayMs + 200);
+
+    // An undo of a move that never happened would be a trap: it promises to put windows back, but
+    // the only snapshot available is the one taken after nothing moved.
+    QVERIFY(backend.m_placed.isEmpty());
+    QCOMPARE(undoSpy.count(), 0);
+
+    service.undoWindowRestore();
+    QVERIFY(backend.m_placed.isEmpty());
 }
 
 void ModeFlowTests::systemUtils_heldProcessHandleProvesTheProcessIsAlive() {

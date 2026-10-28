@@ -92,6 +92,13 @@ void ServiceWiring::wireServiceConnections(AppServices& s, AppController* contro
     QObject::connect(s.trayController.get(), &Gui::TrayController::switchDisplay, s.workspaceService.get(),
                      &WorkspaceService::switchDisplayDirectly, Qt::UniqueConnection);
 
+    // The offer to undo a restored layout is temporary, so it lives in the tray menu instead of a
+    // dialog that would interrupt every switch.
+    QObject::connect(s.workspaceService.get(), &WorkspaceService::windowRestoreUndoAvailable, s.trayController.get(),
+                     &Gui::TrayController::setWindowRestoreUndoAvailable, Qt::UniqueConnection);
+    QObject::connect(s.trayController.get(), &Gui::TrayController::undoWindowRestoreRequested,
+                     s.workspaceService.get(), &WorkspaceService::undoWindowRestore, Qt::UniqueConnection);
+
     QObject::connect(s.trayController.get(), &Gui::TrayController::switchAudio, s.audioManager.get(),
                      &Services::AudioDeviceManager::onSetDefaultOutputDevice, Qt::UniqueConnection);
 

@@ -49,6 +49,12 @@ void TrayController::rebuildMenu() {
     mainWindowAction->setFont(boldFont);
     connect(mainWindowAction, &QAction::triggered, this, &TrayController::showMainWindow);
 
+    auto* undoRestoreAction =
+        m_trayMenu->addAction(FontAwesome::icon(FontAwesome::Undo, 16), tr("Undo window restore"));
+    undoRestoreAction->setObjectName("undoWindowRestoreAction");
+    undoRestoreAction->setVisible(m_windowRestoreUndoAvailable);
+    connect(undoRestoreAction, &QAction::triggered, this, &TrayController::undoWindowRestoreRequested);
+
     m_trayMenu->addSeparator();
 
     m_profileMenu = std::make_unique<QMenu>(tr("Profiles"));
@@ -149,6 +155,14 @@ void TrayController::setEnabledAction(const QString& actionStr, bool enabled) {
 
 void TrayController::activeDialogChanged(Core::ActiveDialog activeDialog) {
     m_activeDialog = activeDialog;
+}
+
+void TrayController::setWindowRestoreUndoAvailable(bool available) {
+    m_windowRestoreUndoAvailable = available;
+
+    if (auto* action = m_trayMenu->findChild<QAction*>(u"undoWindowRestoreAction"_s)) {
+        action->setVisible(available);
+    }
 }
 
 } // namespace ModeFlow::Gui

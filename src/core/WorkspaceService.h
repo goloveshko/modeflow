@@ -4,12 +4,12 @@
 #include <QStringList>
 
 #include "ConfigTypes.h"
+#include "WindowLayouts.h"
 
 namespace ModeFlow::Services {
 class AudioDeviceManager;
 class AppLauncher;
 class DisplayManager;
-class WindowLayouts;
 } // namespace ModeFlow::Services
 
 namespace ModeFlow::Core {
@@ -84,6 +84,19 @@ public:
      */
     void setRememberWindowLayouts(bool enabled);
 
+    /**
+     * @brief Put the windows back where the last restore found them.
+     *
+     * Does nothing once the temporary undo action is no longer offered.
+     */
+    void undoWindowRestore();
+
+    /**
+     * @brief Set how long the undo action stays available.
+     * @param ms Timeout in milliseconds.
+     */
+    void setWindowRestoreUndoTimeout(int ms);
+
     static QString applyStatusName(WorkspaceService::ApplyStatus status);
 
 signals:
@@ -98,6 +111,9 @@ signals:
     void configApplyFinished(const WorkspaceConfig& config, ApplyStatus status, const QString& issues);
     void errorOccurred(const QString& message);
 
+    /// A restore moved windows; the temporary undo action belongs in the UI while the flag is true.
+    void windowRestoreUndoAvailable(bool available);
+
     /**
      * @brief Request to play audio feedback (confirmation sound).
      *
@@ -109,6 +125,7 @@ private slots:
     void onDisplayChanged();
     void onDisplayTimeout();
     void restoreWindowLayout();
+    void clearWindowRestoreUndo();
 
 private:
     void finalizeApplication(ApplyStatus status);
@@ -122,10 +139,13 @@ private:
 
     std::unique_ptr<QTimer> m_displayTimeoutTimer;
     std::unique_ptr<QTimer> m_windowRestoreTimer;
+    std::unique_ptr<QTimer> m_undoExpiryTimer;
     WorkspaceConfig m_pendingConfig;
     Services::WindowLayouts* m_windowLayouts = nullptr;
+    QList<Services::WindowPlacement> m_undoLayout;
 
     int m_displayTimeoutMs;
+    int m_undoTimeoutMs;
     bool m_isWaitingForDisplay = false;
     bool m_isApplyingProfile = false;
     bool m_isSwitchingDisplay = false;
