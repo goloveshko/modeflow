@@ -33,6 +33,9 @@ public:
     bool autoUpdateEnabled() const override;
     void setAutoUpdateEnabled(bool enabled) override;
 
+    bool rememberWindowLayouts() const override;
+    void setRememberWindowLayouts(bool enabled) override;
+
     QKeySequence nextProfileHotkey() const override;
     void setNextProfileHotkey(const QKeySequence& seq) override;
 

@@ -92,6 +92,7 @@ bool ConfigManager::loadConfig() {
     snapshot.startupProfileId = s.value(u"startupProfileId"_sv).toString();
     snapshot.audioConfirmation = s.value(u"audioFeedback"_sv, true).toBool();
     snapshot.autoUpdateEnabled = s.value(u"autoUpdate"_sv, true).toBool();
+    snapshot.rememberWindowLayouts = s.value(u"rememberWindowLayouts"_sv, false).toBool();
     snapshot.autostartDelay = s.value(u"autostartDelay"_sv, 5).toInt();
     snapshot.askConfirmation = s.value(u"askConfirmation"_sv, true).toBool();
 
@@ -151,6 +152,7 @@ bool ConfigManager::saveConfig() {
     s.setValue(u"startupProfileId"_sv, snapshot.startupProfileId);
     s.setValue(u"audioFeedback"_sv, snapshot.audioConfirmation);
     s.setValue(u"autoUpdate"_sv, snapshot.autoUpdateEnabled);
+    s.setValue(u"rememberWindowLayouts"_sv, snapshot.rememberWindowLayouts);
     s.setValue(u"autostartDelay"_sv, snapshot.autostartDelay);
     s.setValue(u"askConfirmation"_sv, snapshot.askConfirmation);
 
@@ -260,6 +262,16 @@ bool ConfigManager::autoUpdateEnabled() const {
 void ConfigManager::setAutoUpdateEnabled(bool enabled) {
     QMutexLocker locker(&m_mutex);
     m_state.autoUpdateEnabled = enabled;
+}
+
+bool ConfigManager::rememberWindowLayouts() const {
+    QMutexLocker locker(&m_mutex);
+    return m_state.rememberWindowLayouts;
+}
+
+void ConfigManager::setRememberWindowLayouts(bool enabled) {
+    QMutexLocker locker(&m_mutex);
+    m_state.rememberWindowLayouts = enabled;
 }
 
 int ConfigManager::autostartDelay() const {

@@ -60,6 +60,7 @@ private:
         bool autoUpdate = true;
         bool autoLogging = false;
         bool askConfirmation = true;
+        bool rememberWindowLayouts = false;
         QString language;
         Core::Theme theme = Core::Theme::Dark;
         QString qtStyleKey;

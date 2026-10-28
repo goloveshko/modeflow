@@ -25,6 +25,7 @@ struct ConfigState {
     QString startupProfileId;
     bool audioConfirmation = true;
     bool autoUpdateEnabled = true;
+    bool rememberWindowLayouts = false;
     int autostartDelay = 0;
     Theme theme = Theme::Light;
     QString qtStyleKey{Utils::DefaultQtStyleKey};
@@ -80,6 +81,9 @@ public:
 
     bool autoUpdateEnabled() const;
     void setAutoUpdateEnabled(bool enabled);
+
+    bool rememberWindowLayouts() const;
+    void setRememberWindowLayouts(bool enabled);
 
     int autostartDelay() const;
     void setAutostartDelay(int seconds);

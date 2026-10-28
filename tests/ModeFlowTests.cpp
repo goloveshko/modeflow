@@ -329,6 +329,9 @@ public:
     bool autoUpdateEnabled() const override { return autoUpdateEnabledValue; }
     void setAutoUpdateEnabled(bool enabled) override { autoUpdateEnabledValue = enabled; }
 
+    bool rememberWindowLayouts() const override { return rememberWindowLayoutsValue; }
+    void setRememberWindowLayouts(bool enabled) override { rememberWindowLayoutsValue = enabled; }
+
     QKeySequence nextProfileHotkey() const override { return nextProfileSequence; }
     void setNextProfileHotkey(const QKeySequence& seq) override { nextProfileSequence = seq; }
 
@@ -390,6 +393,7 @@ public:
     int autostartDelaySeconds = 5;
     bool audioConfirmationEnabled = true;
     bool autoUpdateEnabledValue = true;
+    bool rememberWindowLayoutsValue = false;
     QKeySequence nextProfileSequence;
     ModeFlow::Core::StartupAction startupActionValue = ModeFlow::Core::StartupAction::None;
     QString startupProfileIdValue;
@@ -717,6 +721,7 @@ private slots:
     void workspaceDeletePersistsAndEmitsRefresh();
     void workspaceDeleteSaveFailureDoesNotEmitRefresh();
     void settingsAcceptCommitsAutostartAndConfig();
+    void settingsDialog_commitsTheWindowLayoutPreference();
     void settingsAcceptRollsBackOnSaveFailure();
     void commandLineBuilder_generatesCorrectArguments();
     void cliParser_parsesArgumentsCorrectly();
@@ -918,6 +923,29 @@ void ModeFlowTests::settingsAcceptCommitsAutostartAndConfig() {
     QCOMPARE(settingsManager.autostartDelaySeconds, 10);
     QCOMPARE(settingsManager.audioConfirmationEnabled, false);
     QCOMPARE(settingsManager.languageCode, QStringLiteral("ru_RU"));
+    QCOMPARE(dialog.result(), static_cast<int>(QDialog::Accepted));
+}
+
+void ModeFlowTests::settingsDialog_commitsTheWindowLayoutPreference() {
+    FakeSettingsManager settingsManager;
+    settingsManager.rememberWindowLayoutsValue = true;
+    FakeWorkspaceManager workspaceManager;
+    FakeStyleManager styleManager;
+    FakeDialogManager dialogManager;
+    ModeFlow::Gui::SettingsDialog dialog(&dialogManager, &settingsManager, &workspaceManager, &styleManager);
+    QCoreApplication::processEvents();
+
+    auto* rememberLayouts = dialog.findChild<QCheckBox*>("checkRememberWindowLayouts");
+    QVERIFY(rememberLayouts);
+
+    // The saved value reaches the form as it is.
+    QVERIFY(rememberLayouts->isChecked());
+
+    rememberLayouts->setChecked(false);
+    dialog.accept();
+
+    QCOMPARE(settingsManager.saveCalls, 1);
+    QCOMPARE(settingsManager.rememberWindowLayoutsValue, false);
     QCOMPARE(dialog.result(), static_cast<int>(QDialog::Accepted));
 }
 

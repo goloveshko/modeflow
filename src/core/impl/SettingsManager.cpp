@@ -66,6 +66,14 @@ void SettingsManager::setAutoUpdateEnabled(bool enabled) {
     m_configManager->setAutoUpdateEnabled(enabled);
 }
 
+bool SettingsManager::rememberWindowLayouts() const {
+    return m_configManager->rememberWindowLayouts();
+}
+
+void SettingsManager::setRememberWindowLayouts(bool enabled) {
+    m_configManager->setRememberWindowLayouts(enabled);
+}
+
 QKeySequence SettingsManager::nextProfileHotkey() const {
     return m_configManager->nextProfileHotkey();
 }

@@ -62,6 +62,7 @@ void SettingsDialog::loadSettings() {
 
     ui->checkAudioConfirmation->setChecked(m_settingsManager->audioConfirmation());
     ui->checkAutoUpdate->setChecked(m_settingsManager->autoUpdateEnabled());
+    ui->checkRememberWindowLayouts->setChecked(m_settingsManager->rememberWindowLayouts());
     ui->checkLoggingEnabled->setChecked(m_settingsManager->loggingEnabled());
 
     ui->checkAskConfirmation->setChecked(m_settingsManager->askConfirmation());
@@ -261,6 +262,7 @@ SettingsDialog::FormState SettingsDialog::currentFormState() const {
     state.nextProfileHotkey = ui->keyEditNextProfile->keySequence();
     state.audioConfirmation = ui->checkAudioConfirmation->isChecked();
     state.autoUpdate = ui->checkAutoUpdate->isChecked();
+    state.rememberWindowLayouts = ui->checkRememberWindowLayouts->isChecked();
     state.autoLogging = ui->checkLoggingEnabled->isChecked();
     state.askConfirmation = ui->checkAskConfirmation->isChecked();
     state.language = ui->comboLanguage->currentData().toString();
@@ -298,6 +300,7 @@ void SettingsDialog::applySettingsState(const FormState& state) {
     m_settingsManager->setNextProfileHotkey(state.nextProfileHotkey);
     m_settingsManager->setAudioConfirmation(state.audioConfirmation);
     m_settingsManager->setAutoUpdateEnabled(state.autoUpdate);
+    m_settingsManager->setRememberWindowLayouts(state.rememberWindowLayouts);
     m_settingsManager->setLoggingEnabled(state.autoLogging);
     m_settingsManager->setAskConfirmation(state.askConfirmation);
     m_settingsManager->setLanguagePreference(state.language);

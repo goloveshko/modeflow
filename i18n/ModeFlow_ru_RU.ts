@@ -1005,6 +1005,14 @@
         <source>Enable diagnostic logging</source>
         <translation>Включить диагностическое логирование</translation>
     </message>
+    <message>
+        <source>Keep a separate window layout for each screen configuration and restore it when switching back.</source>
+        <translation>Запоминать отдельное расположение окон для каждой конфигурации экранов и восстанавливать его при возврате.</translation>
+    </message>
+    <message>
+        <source>Remember window positions per display</source>
+        <translation>Запоминать расположение окон по экранам</translation>
+    </message>
 </context>
 <context>
     <name>StyleManager</name>

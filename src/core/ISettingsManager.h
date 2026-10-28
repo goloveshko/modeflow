@@ -24,6 +24,8 @@ public:
     virtual void setAudioConfirmation(bool enabled) = 0;
     virtual bool autoUpdateEnabled() const = 0;
     virtual void setAutoUpdateEnabled(bool enabled) = 0;
+    virtual bool rememberWindowLayouts() const = 0;
+    virtual void setRememberWindowLayouts(bool enabled) = 0;
     virtual QKeySequence nextProfileHotkey() const = 0;
     virtual void setNextProfileHotkey(const QKeySequence& seq) = 0;
 
