@@ -46,7 +46,8 @@ void ServiceFactory::createHardwareServices(AppServices& services, QObject* pare
     services.workspaceService = std::make_unique<WorkspaceService>(
         services.displayManager.get(), services.audioManager.get(), services.appLauncher.get());
     services.workspaceService->setWindowLayouts(services.windowLayouts.get());
-    services.workspaceService->setRememberWindowLayouts(services.configManager->rememberWindowLayouts());
+    // Before the startup profile can be applied, so persisted preferences are not lost on logon.
+    services.workspaceService->applyPreferences(*services.configManager);
 
     services.workspaceManager = std::make_unique<WorkspaceManager>(
         services.configManager.get(), services.displayManager.get(), services.audioManager.get());

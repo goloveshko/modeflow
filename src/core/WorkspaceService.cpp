@@ -7,6 +7,7 @@
 
 #include "AppLauncher.h"
 #include "AudioDeviceManager.h"
+#include "ConfigManager.h"
 #include "Constants.h"
 #include "DisplayManager.h"
 #include "Logging.h"
@@ -61,6 +62,11 @@ void WorkspaceService::setDisplayTimeout(int ms) {
 
 void WorkspaceService::setAudioConfirmation(bool enabled) {
     m_audioConfirmation = enabled;
+}
+
+void WorkspaceService::applyPreferences(const ConfigManager& config) {
+    m_audioConfirmation = config.audioConfirmation();
+    m_rememberWindowLayouts = config.rememberWindowLayouts();
 }
 
 void WorkspaceService::setWindowLayouts(Services::WindowLayouts* layouts) {

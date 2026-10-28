@@ -14,6 +14,8 @@ class DisplayManager;
 
 namespace ModeFlow::Core {
 
+class ConfigManager;
+
 /**
  * @brief Service for managing workspace configuration application.
  *
@@ -69,6 +71,14 @@ public:
      * @param enabled true to enable audio feedback, false to disable.
      */
     void setAudioConfirmation(bool enabled);
+
+    /**
+     * @brief Take the preferences that shape an apply from persisted settings.
+     *
+     * Used both when the service is created and when the user changes settings, so a logon apply
+     * cannot run with values the configuration no longer holds.
+     */
+    void applyPreferences(const ConfigManager& config);
 
     /**
      * @brief Provide the store of window layouts.

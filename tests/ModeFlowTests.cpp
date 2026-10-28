@@ -807,6 +807,7 @@ private slots:
     void workspaceService_partialSuccessDisplayOnly();
     void workspaceService_audioConfirmationEmitted();
     void workspaceService_audioConfirmationDisabled();
+    void workspaceService_startupPreferencesSilenceTheConfirmation();
     void workspaceService_secondRequestIsRefusedWhileSwitching();
     void workspaceService_staleDisplayFailureDoesNotFinishNextProfile();
     void workspaceService_directDisplaySwitchReportsFailure();
@@ -1585,6 +1586,33 @@ void ModeFlowTests::workspaceService_audioConfirmationDisabled() {
     QCOMPARE(feedbackSpy.count(), 0);
 }
 
+void ModeFlowTests::workspaceService_startupPreferencesSilenceTheConfirmation() {
+    FakeDisplayManagerForWS display;
+    display.m_currentDisplayKey = QStringLiteral("display-1");
+    FakeAudioDeviceManagerForWS audio;
+    audio.m_defaultOutputDeviceId = QStringLiteral("old-audio");
+    FakeAppLauncherForWS launcher;
+
+    // The confirmation sound was turned off before this run. The first profile applied from the
+    // startup action must already respect that, not beep until the settings dialog is opened.
+    ModeFlow::Core::ConfigManager settings;
+    settings.setAudioConfirmation(false);
+
+    ModeFlow::Core::WorkspaceService service(&display, &audio, &launcher);
+    service.applyPreferences(settings);
+    QSignalSpy feedbackSpy(&service, &ModeFlow::Core::WorkspaceService::requestAudioFeedback);
+
+    ModeFlow::Core::WorkspaceConfig config;
+    config.id = QStringLiteral("p1");
+    config.name = QStringLiteral("Profile1");
+    config.displayId = QStringLiteral("display-1");
+    config.audioId = QStringLiteral("new-audio");
+
+    service.applyWorkspaceConfig(config);
+
+    QCOMPARE(feedbackSpy.count(), 0);
+}
+
 void ModeFlowTests::workspaceService_secondRequestIsRefusedWhileSwitching() {
     using ModeFlow::Core::WorkspaceConfig;
     using Service = ModeFlow::Core::WorkspaceService;
@@ -1908,7 +1936,11 @@ void ModeFlowTests::workspaceService_remembersTheLayoutItLeavesAndRestoresTheTar
 
     WorkspaceService service(&display, &audio, &launcher);
     service.setWindowLayouts(&layouts);
-    service.setRememberWindowLayouts(true);
+    // The user opted in before this run; the service takes that from persisted settings, as it does
+    // when it is created at startup.
+    ModeFlow::Core::ConfigManager settings;
+    settings.setRememberWindowLayouts(true);
+    service.applyPreferences(settings);
     service.setDisplayTimeout(5000);
 
     service.applyWorkspaceConfig(makeProfileForSwitch(QStringLiteral("p2"), QStringLiteral("display-2")));
