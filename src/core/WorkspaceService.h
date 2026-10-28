@@ -9,6 +9,7 @@ namespace ModeFlow::Services {
 class AudioDeviceManager;
 class AppLauncher;
 class DisplayManager;
+class WindowLayouts;
 } // namespace ModeFlow::Services
 
 namespace ModeFlow::Core {
@@ -69,6 +70,20 @@ public:
      */
     void setAudioConfirmation(bool enabled);
 
+    /**
+     * @brief Provide the store of window layouts.
+     *
+     * Without a store nothing is remembered or restored, which is also the state when the user has not
+     * opted in.
+     */
+    void setWindowLayouts(Services::WindowLayouts* layouts);
+
+    /**
+     * @brief Enable/disable remembering the window layout per screen configuration.
+     * @param enabled true to remember before a switch and restore after it.
+     */
+    void setRememberWindowLayouts(bool enabled);
+
     static QString applyStatusName(WorkspaceService::ApplyStatus status);
 
 signals:
@@ -93,9 +108,12 @@ signals:
 private slots:
     void onDisplayChanged();
     void onDisplayTimeout();
+    void restoreWindowLayout();
 
 private:
     void finalizeApplication(ApplyStatus status);
+    void rememberCurrentWindowLayout();
+    void scheduleWindowLayoutRestore();
 
 private:
     Services::DisplayManager* m_displayManager;
@@ -103,7 +121,9 @@ private:
     Services::AppLauncher* m_appLauncher;
 
     std::unique_ptr<QTimer> m_displayTimeoutTimer;
+    std::unique_ptr<QTimer> m_windowRestoreTimer;
     WorkspaceConfig m_pendingConfig;
+    Services::WindowLayouts* m_windowLayouts = nullptr;
 
     int m_displayTimeoutMs;
     bool m_isWaitingForDisplay = false;
@@ -121,6 +141,7 @@ private:
     bool m_hadAppLaunchError = false;
     QStringList m_stageIssues;
     bool m_audioConfirmation = true;
+    bool m_rememberWindowLayouts = false;
     bool m_hadActualChanges = false;
 };
 } // namespace ModeFlow::Core

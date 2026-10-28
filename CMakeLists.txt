@@ -126,6 +126,7 @@ set(COMMON_SOURCES
     src/services/HotkeyManager.cpp src/services/HotkeyManager.h
     src/services/SingleInstanceGuard.cpp src/services/SingleInstanceGuard.h
     src/services/UpdateService.cpp src/services/UpdateService.h
+    src/services/WindowLayouts.cpp src/services/WindowLayouts.h
 
     # UTILS
     src/utils/ComInitGuard.cpp src/utils/ComInitGuard.h

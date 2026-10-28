@@ -185,6 +185,7 @@ void AppController::raiseMainWindow() {
 
 void AppController::handleSettingsChanges(const QString& oldLang, Core::Theme oldTheme) {
     m_services.workspaceService->setAudioConfirmation(m_services.configManager->audioConfirmation());
+    m_services.workspaceService->setRememberWindowLayouts(m_services.configManager->rememberWindowLayouts());
     m_services.hotkeyManager->setNextProfileHotkey(m_services.configManager->nextProfileHotkey());
     applyAutoUpdateSetting();
 

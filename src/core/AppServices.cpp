@@ -14,6 +14,7 @@
 #include "StyleManager.h"
 #include "TrayController.h"
 #include "UpdateService.h"
+#include "WindowLayouts.h"
 #include "WorkspaceManager.h"
 #include "WorkspaceService.h"
 

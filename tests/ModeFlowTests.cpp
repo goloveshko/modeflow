@@ -73,6 +73,7 @@
 #include "SingleInstanceGuard.h"
 #include "SystemUtils.h"
 #include "UpdateService.h"
+#include "WindowLayouts.h"
 #include "WorkspaceModel.h"
 #include "WorkspaceService.h"
 
@@ -593,6 +594,58 @@ public:
     QStringList m_closedProfileIds;
 };
 
+// The layout engine decides what to move and where; the operating system only supplies the list and
+// performs the move. Tests replace that boundary, so no real window is ever enumerated or moved.
+class FakeWindowBackend : public ModeFlow::Services::IWindowBackend {
+public:
+    QList<ModeFlow::Services::LiveWindow> liveWindows() const override {
+        ++m_liveCalls;
+        return m_live;
+    }
+
+    void placeWindow(quintptr handle, const QRect& geometry, bool maximized, bool minimized) override {
+        m_placed.append({handle, geometry, maximized, minimized});
+    }
+
+    struct Placement {
+        quintptr handle = 0;
+        QRect geometry;
+        bool maximized = false;
+        bool minimized = false;
+    };
+
+    QList<ModeFlow::Services::LiveWindow> m_live;
+    QList<Placement> m_placed;
+    mutable int m_liveCalls = 0;
+};
+
+ModeFlow::Services::LiveWindow liveWindow(qint64 pid, qint64 startedAt, const QString& windowClass, quintptr handle,
+                                          const QRect& geometry, bool maximized = false, bool minimized = false) {
+    ModeFlow::Services::LiveWindow window;
+    window.identity.pid = pid;
+    window.identity.processStart = startedAt;
+    window.identity.windowClass = windowClass;
+    window.handle = handle;
+    window.geometry = geometry;
+    window.maximized = maximized;
+    window.minimized = minimized;
+    return window;
+}
+
+ModeFlow::Services::WindowPlacement savedPlacement(qint64 pid, qint64 startedAt, const QString& windowClass,
+                                                   quintptr handle, const QRect& geometry,
+                                                   bool maximized = false, bool minimized = false) {
+    ModeFlow::Services::WindowPlacement placement;
+    placement.identity.pid = pid;
+    placement.identity.processStart = startedAt;
+    placement.identity.windowClass = windowClass;
+    placement.handle = handle;
+    placement.geometry = geometry;
+    placement.maximized = maximized;
+    placement.minimized = minimized;
+    return placement;
+}
+
 class FakeDialogManager : public ModeFlow::Core::IDialogManager {
 public:
     FakeDialogManager() = default;
@@ -762,7 +815,18 @@ private slots:
     void workspaceService_reappliedProfileKeepsItsOwnApplications();
     void workspaceService_failedDisplaySwitchKeepsOutgoingAppsOpen();
     void workspaceService_displayTimeoutKeepsOutgoingAppsOpen();
+    void workspaceService_remembersTheLayoutItLeavesAndRestoresTheTarget();
+    void workspaceService_audioOnlyApplyLeavesWindowsWhereTheyAre();
+    void workspaceService_disabledWindowLayoutsLeaveWindowsAlone();
+    void workspaceService_timedOutSwitchDoesNotRestoreWindows();
+    void workspaceService_directDisplaySwitchRestoresTheTargetLayout();
     void systemUtils_heldProcessHandleProvesTheProcessIsAlive();
+
+    void windowLayouts_captureKeepsTheStateOfEveryLiveWindow();
+    void windowLayouts_restoreSkipsWindowsThatCannotBeIdentified();
+    void windowLayouts_keepsLayoutsApartPerScreenConfiguration();
+    void windowLayouts_survivesARestartThroughItsFile();
+    void windowLayouts_ignoresAFileItCannotRead();
 
     void appLauncher_sequenceSkipsEmptyPaths();
     void appLauncher_sequenceRefusesNonExistentPath();
@@ -1816,6 +1880,181 @@ void ModeFlowTests::workspaceService_displayTimeoutKeepsOutgoingAppsOpen() {
     QFile::remove(editor);
 }
 
+void ModeFlowTests::workspaceService_remembersTheLayoutItLeavesAndRestoresTheTarget() {
+    using ModeFlow::Core::WorkspaceService;
+    using ModeFlow::Services::WindowLayouts;
+
+    const QString leaving = QStringLiteral("screens-a");
+    const QString arriving = QStringLiteral("screens-b");
+
+    FakeWindowBackend backend;
+    backend.m_live = {liveWindow(42, 1000, QStringLiteral("Chrome_WidgetWin_1"), 7, QRect(10, 20, 800, 600))};
+
+    QString topology = leaving;
+    WindowLayouts layouts(&backend, {}, [&topology]() { return topology; });
+
+    // What the user last had on the target screens, kept from an earlier visit.
+    layouts.remember(arriving,
+                     {savedPlacement(43, 2000, QStringLiteral("Notepad"), 8, QRect(-1200, 30, 700, 500), false, true)});
+
+    FakeDisplayManagerForWS display;
+    display.m_currentDisplayKey = QStringLiteral("display-1");
+    FakeAudioDeviceManagerForWS audio;
+    FakeAppLauncherForWS launcher;
+
+    WorkspaceService service(&display, &audio, &launcher);
+    service.setWindowLayouts(&layouts);
+    service.setRememberWindowLayouts(true);
+    service.setDisplayTimeout(5000);
+
+    service.applyWorkspaceConfig(makeProfileForSwitch(QStringLiteral("p2"), QStringLiteral("display-2")));
+
+    // The screens being left are recorded before the system moves anything.
+    const auto leftBehind = layouts.layoutFor(leaving);
+    QCOMPARE(leftBehind.size(), 1);
+    QCOMPARE(leftBehind.at(0).identity.windowClass, QStringLiteral("Chrome_WidgetWin_1"));
+    QCOMPARE(leftBehind.at(0).geometry, QRect(10, 20, 800, 600));
+
+    // The screens have changed by the time the system confirms the switch.
+    topology = arriving;
+    backend.m_live = {liveWindow(43, 2000, QStringLiteral("Notepad"), 8, QRect(1920, 40, 600, 400))};
+    display.m_currentDisplayKey = QStringLiteral("display-2");
+    display.emitDisplaysChanged();
+
+    QTRY_COMPARE_WITH_TIMEOUT(backend.m_placed.size(), 1, 5000);
+    QCOMPARE(backend.m_placed.at(0).handle, quintptr(8));
+    QCOMPARE(backend.m_placed.at(0).geometry, QRect(-1200, 30, 700, 500));
+    QVERIFY(!backend.m_placed.at(0).maximized);
+    QVERIFY(backend.m_placed.at(0).minimized);
+}
+
+void ModeFlowTests::workspaceService_audioOnlyApplyLeavesWindowsWhereTheyAre() {
+    using ModeFlow::Core::WorkspaceConfig;
+    using ModeFlow::Core::WorkspaceService;
+    using ModeFlow::Services::WindowLayouts;
+
+    FakeWindowBackend backend;
+    backend.m_live = {liveWindow(42, 1000, QStringLiteral("Editor"), 7, QRect(10, 20, 800, 600))};
+
+    const QString topology = QStringLiteral("screens-a");
+    WindowLayouts layouts(&backend, {}, [&topology]() { return topology; });
+    // Even a layout that belongs to these screens must stay untouched: no switch, no moving.
+    layouts.remember(topology, {savedPlacement(42, 1000, QStringLiteral("Editor"), 7, QRect(0, 0, 400, 300))});
+
+    FakeDisplayManagerForWS display;
+    display.m_currentDisplayKey = QStringLiteral("display-1");
+    FakeAudioDeviceManagerForWS audio;
+    audio.m_defaultOutputDeviceId = QStringLiteral("old-audio");
+    FakeAppLauncherForWS launcher;
+
+    WorkspaceService service(&display, &audio, &launcher);
+    service.setWindowLayouts(&layouts);
+    service.setRememberWindowLayouts(true);
+
+    WorkspaceConfig config;
+    config.id = QStringLiteral("p1");
+    config.name = QStringLiteral("Audio only");
+    config.displayId = QStringLiteral("display-1");
+    config.audioId = QStringLiteral("new-audio");
+    service.applyWorkspaceConfig(config);
+
+    QTest::qWait(ModeFlow::Utils::WindowLayoutRestoreDelayMs + 200);
+
+    QCOMPARE(backend.m_liveCalls, 0);
+    QVERIFY(backend.m_placed.isEmpty());
+}
+
+void ModeFlowTests::workspaceService_disabledWindowLayoutsLeaveWindowsAlone() {
+    using ModeFlow::Core::WorkspaceService;
+    using ModeFlow::Services::WindowLayouts;
+
+    FakeWindowBackend backend;
+    backend.m_live = {liveWindow(42, 1000, QStringLiteral("Editor"), 7, QRect(10, 20, 800, 600))};
+
+    QString topology = QStringLiteral("screens-a");
+    WindowLayouts layouts(&backend, {}, [&topology]() { return topology; });
+    layouts.remember(QStringLiteral("screens-b"),
+                     {savedPlacement(42, 1000, QStringLiteral("Editor"), 7, QRect(0, 0, 400, 300))});
+
+    FakeDisplayManagerForWS display;
+    display.m_currentDisplayKey = QStringLiteral("display-1");
+    FakeAudioDeviceManagerForWS audio;
+    FakeAppLauncherForWS launcher;
+
+    WorkspaceService service(&display, &audio, &launcher);
+    service.setWindowLayouts(&layouts);
+    service.setDisplayTimeout(5000);
+
+    service.applyWorkspaceConfig(makeProfileForSwitch(QStringLiteral("p2"), QStringLiteral("display-2")));
+    topology = QStringLiteral("screens-b");
+    display.m_currentDisplayKey = QStringLiteral("display-2");
+    display.emitDisplaysChanged();
+    QTest::qWait(ModeFlow::Utils::WindowLayoutRestoreDelayMs + 200);
+
+    // The user has not opted in, so neither the snapshot nor the restore may happen.
+    QCOMPARE(backend.m_liveCalls, 0);
+    QVERIFY(backend.m_placed.isEmpty());
+}
+
+void ModeFlowTests::workspaceService_timedOutSwitchDoesNotRestoreWindows() {
+    using ModeFlow::Core::WorkspaceService;
+    using ModeFlow::Services::WindowLayouts;
+
+    FakeWindowBackend backend;
+    backend.m_live = {liveWindow(42, 1000, QStringLiteral("Editor"), 7, QRect(10, 20, 800, 600))};
+
+    QString topology = QStringLiteral("screens-a");
+    WindowLayouts layouts(&backend, {}, [&topology]() { return topology; });
+    layouts.remember(QStringLiteral("screens-b"),
+                     {savedPlacement(42, 1000, QStringLiteral("Editor"), 7, QRect(0, 0, 400, 300))});
+
+    FakeDisplayManagerForWS display;
+    display.m_currentDisplayKey = QStringLiteral("display-1");
+    FakeAudioDeviceManagerForWS audio;
+    FakeAppLauncherForWS launcher;
+
+    WorkspaceService service(&display, &audio, &launcher);
+    service.setWindowLayouts(&layouts);
+    service.setRememberWindowLayouts(true);
+    service.setDisplayTimeout(30);
+
+    service.applyWorkspaceConfig(makeProfileForSwitch(QStringLiteral("p2"), QStringLiteral("display-2")));
+
+    // The system never confirms the switch; the screens keep showing what they showed before.
+    topology = QStringLiteral("screens-b");
+    QTest::qWait(ModeFlow::Utils::WindowLayoutRestoreDelayMs + 200);
+
+    QVERIFY(backend.m_placed.isEmpty());
+}
+
+void ModeFlowTests::workspaceService_directDisplaySwitchRestoresTheTargetLayout() {
+    using ModeFlow::Core::WorkspaceService;
+    using ModeFlow::Services::WindowLayouts;
+
+    FakeWindowBackend backend;
+    backend.m_live = {liveWindow(42, 1000, QStringLiteral("Editor"), 7, QRect(10, 20, 800, 600))};
+
+    QString topology = QStringLiteral("screens-a");
+    WindowLayouts layouts(&backend, {}, [&topology]() { return topology; });
+    layouts.remember(QStringLiteral("screens-b"),
+                     {savedPlacement(42, 1000, QStringLiteral("Editor"), 7, QRect(1920, 40, 640, 480))});
+
+    FakeDisplayManagerForWS display;
+    display.m_currentDisplayKey = QStringLiteral("display-1");
+    FakeAudioDeviceManagerForWS audio;
+    FakeAppLauncherForWS launcher;
+
+    WorkspaceService service(&display, &audio, &launcher);
+    service.setWindowLayouts(&layouts);
+    service.setRememberWindowLayouts(true);
+
+    service.switchDisplayDirectly(QStringLiteral("display-2"));
+    topology = QStringLiteral("screens-b");
+
+    QTRY_COMPARE_WITH_TIMEOUT(backend.m_placed.size(), 1, 5000);
+    QCOMPARE(backend.m_placed.at(0).geometry, QRect(1920, 40, 640, 480));
+}
+
 void ModeFlowTests::systemUtils_heldProcessHandleProvesTheProcessIsAlive() {
     using ModeFlow::Utils::SystemUtils;
 
@@ -2350,6 +2589,143 @@ void ModeFlowTests::displayManager_destructionWaitsForAnInFlightSwitch() {
     QVERIFY2(waited >= 50, qPrintable(QStringLiteral("destructor returned after %1 ms").arg(waited)));
     QVERIFY(state->finished.load());
     QVERIFY(switching.isFinished());
+}
+
+void ModeFlowTests::windowLayouts_captureKeepsTheStateOfEveryLiveWindow() {
+    FakeWindowBackend backend;
+    backend.m_live = {
+        liveWindow(1, 10, QStringLiteral("Editor"), 100, QRect(0, 0, 800, 600)),
+        liveWindow(2, 20, QStringLiteral("Browser"), 101, QRect(800, 0, 640, 480), true),
+        liveWindow(3, 30, QStringLiteral("Player"), 102, QRect(-1920, 0, 640, 480), false, true),
+    };
+
+    ModeFlow::Services::WindowLayouts layouts(&backend);
+    const auto captured = layouts.capture();
+
+    QCOMPARE(captured.size(), 3);
+    QCOMPARE(captured.at(1).identity.pid, qint64(2));
+    QCOMPARE(captured.at(1).identity.processStart, qint64(20));
+    QCOMPARE(captured.at(1).identity.windowClass, QStringLiteral("Browser"));
+    QCOMPARE(captured.at(1).handle, quintptr(101));
+    QCOMPARE(captured.at(1).geometry, QRect(800, 0, 640, 480));
+    QVERIFY(captured.at(1).maximized);
+    QVERIFY(!captured.at(1).minimized);
+
+    // A minimized window still belongs to the layout of its screens.
+    QVERIFY(captured.at(2).minimized);
+    QVERIFY(!captured.at(2).maximized);
+    QCOMPARE(captured.at(2).geometry, QRect(-1920, 0, 640, 480));
+}
+
+void ModeFlowTests::windowLayouts_restoreSkipsWindowsThatCannotBeIdentified() {
+    using ModeFlow::Services::WindowLayouts;
+
+    FakeWindowBackend backend;
+    backend.m_live = {
+        liveWindow(1, 10, QStringLiteral("Editor"), 100, QRect(0, 0, 800, 600)),
+        liveWindow(2, 20, QStringLiteral("Browser"), 200, QRect(0, 0, 800, 600)),
+        liveWindow(2, 20, QStringLiteral("Browser"), 201, QRect(100, 0, 800, 600)),
+    };
+
+    const QList<ModeFlow::Services::WindowPlacement> saved = {
+        savedPlacement(1, 10, QStringLiteral("Editor"), 100, QRect(10, 20, 500, 400)),
+        // The application is gone, so nothing carries this identity any more.
+        savedPlacement(9, 90, QStringLiteral("Editor"), 900, QRect(10, 20, 500, 400)),
+        // Two windows of one class in one process: the saved handle picks the right one.
+        savedPlacement(2, 20, QStringLiteral("Browser"), 201, QRect(300, 40, 640, 480), true),
+        // The same pair without a usable handle would be a guess, so neither is moved.
+        savedPlacement(2, 20, QStringLiteral("Browser"), 999, QRect(0, 0, 100, 100)),
+        // Same process and class as a live window, but a different instance of the process.
+        savedPlacement(1, 99, QStringLiteral("Editor"), 100, QRect(0, 0, 100, 100)),
+    };
+
+    WindowLayouts layouts(&backend);
+
+    QCOMPARE(layouts.restore(saved), 2);
+    QCOMPARE(backend.m_placed.size(), 2);
+    QCOMPARE(backend.m_placed.at(0).handle, quintptr(100));
+    QCOMPARE(backend.m_placed.at(0).geometry, QRect(10, 20, 500, 400));
+    QCOMPARE(backend.m_placed.at(1).handle, quintptr(201));
+    QCOMPARE(backend.m_placed.at(1).geometry, QRect(300, 40, 640, 480));
+    QVERIFY(backend.m_placed.at(1).maximized);
+}
+
+void ModeFlowTests::windowLayouts_keepsLayoutsApartPerScreenConfiguration() {
+    using ModeFlow::Services::WindowLayouts;
+
+    FakeWindowBackend backend;
+    WindowLayouts layouts(&backend);
+
+    layouts.remember(QStringLiteral("screens-a"),
+                     {savedPlacement(1, 10, QStringLiteral("Editor"), 100, QRect(0, 0, 400, 300))});
+    layouts.remember(QStringLiteral("screens-b"),
+                     {savedPlacement(1, 10, QStringLiteral("Editor"), 100, QRect(0, 0, 400, 300)),
+                      savedPlacement(2, 20, QStringLiteral("Browser"), 200, QRect(0, 0, 400, 300))});
+
+    QCOMPARE(layouts.layoutFor(QStringLiteral("screens-a")).size(), 1);
+    QCOMPARE(layouts.layoutFor(QStringLiteral("screens-b")).size(), 2);
+    QVERIFY(layouts.layoutFor(QStringLiteral("screens-c")).isEmpty());
+
+    layouts.forget(QStringLiteral("screens-a"));
+    QVERIFY(layouts.layoutFor(QStringLiteral("screens-a")).isEmpty());
+    QCOMPARE(layouts.layoutFor(QStringLiteral("screens-b")).size(), 2);
+
+    // An empty key would merge every unknown configuration into one layout.
+    layouts.remember(QString(), {savedPlacement(3, 30, QStringLiteral("Player"), 300, QRect(0, 0, 400, 300))});
+    QVERIFY(layouts.layoutFor(QString()).isEmpty());
+}
+
+void ModeFlowTests::windowLayouts_survivesARestartThroughItsFile() {
+    using ModeFlow::Services::WindowLayouts;
+
+    QTemporaryDir dir;
+    QVERIFY(dir.isValid());
+    const QString path = dir.filePath(QStringLiteral("window_layouts.json"));
+
+    FakeWindowBackend backend;
+    {
+        WindowLayouts layouts(&backend, path);
+        layouts.remember(QStringLiteral("screens"),
+                         {savedPlacement(1, 10, QStringLiteral("Editor"), 100, QRect(-1200, 40, 800, 600), true),
+                          savedPlacement(2, 20, QStringLiteral("Browser"), 200, QRect(0, 0, 640, 480), false, true)});
+    }
+    QVERIFY(QFile::exists(path));
+
+    FakeWindowBackend reopenedBackend;
+    WindowLayouts reopened(&reopenedBackend, path);
+    const auto stored = reopened.layoutFor(QStringLiteral("screens"));
+
+    QCOMPARE(stored.size(), 2);
+    QCOMPARE(stored.at(0).identity.pid, qint64(1));
+    QCOMPARE(stored.at(0).identity.processStart, qint64(10));
+    QCOMPARE(stored.at(0).identity.windowClass, QStringLiteral("Editor"));
+    QCOMPARE(stored.at(0).geometry, QRect(-1200, 40, 800, 600));
+    QVERIFY(stored.at(0).maximized);
+    QVERIFY(!stored.at(0).minimized);
+
+    QCOMPARE(stored.at(1).geometry, QRect(0, 0, 640, 480));
+    QVERIFY(stored.at(1).minimized);
+    QVERIFY(!stored.at(1).maximized);
+}
+
+void ModeFlowTests::windowLayouts_ignoresAFileItCannotRead() {
+    using ModeFlow::Services::WindowLayouts;
+
+    QTemporaryDir dir;
+    QVERIFY(dir.isValid());
+    const QString path = dir.filePath(QStringLiteral("window_layouts.json"));
+
+    QFile file(path);
+    QVERIFY(file.open(QIODevice::WriteOnly));
+    file.write("{ this is not a layout");
+    file.close();
+
+    FakeWindowBackend backend;
+    WindowLayouts layouts(&backend, path);
+
+    QVERIFY(!layouts.load(path));
+    QVERIFY(layouts.layoutFor(QStringLiteral("screens")).isEmpty());
+    QVERIFY(backend.m_placed.isEmpty());
 }
 
 void ModeFlowTests::appLaunchConfig_jsonRoundTrip() {

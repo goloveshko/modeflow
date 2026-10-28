@@ -1,5 +1,7 @@
 ﻿#include "ServiceFactory.h"
 
+#include <QStandardPaths>
+
 #include "AppController.h"
 #include "AppLauncher.h"
 #include "AudioDeviceManager.h"
@@ -15,6 +17,7 @@
 #include "StyleManager.h"
 #include "TrayController.h"
 #include "UpdateService.h"
+#include "WindowLayouts.h"
 #include "WorkspaceManager.h"
 #include "WorkspaceService.h"
 
@@ -35,8 +38,15 @@ void ServiceFactory::createHardwareServices(AppServices& services, QObject* pare
     services.styleManager = std::make_unique<StyleManager>(services.configManager->currentTheme(),
                                                            services.configManager->currentQtStyleKey());
 
+    const QString appDataDir = QStandardPaths::writableLocation(QStandardPaths::AppDataLocation);
+    services.windowBackend = std::make_unique<Services::SystemWindowBackend>();
+    services.windowLayouts = std::make_unique<Services::WindowLayouts>(
+        services.windowBackend.get(), appDataDir + QStringLiteral("/window_layouts.json"));
+
     services.workspaceService = std::make_unique<WorkspaceService>(
         services.displayManager.get(), services.audioManager.get(), services.appLauncher.get());
+    services.workspaceService->setWindowLayouts(services.windowLayouts.get());
+    services.workspaceService->setRememberWindowLayouts(services.configManager->rememberWindowLayouts());
 
     services.workspaceManager = std::make_unique<WorkspaceManager>(
         services.configManager.get(), services.displayManager.get(), services.audioManager.get());

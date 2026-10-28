@@ -8,6 +8,7 @@
 #include "Constants.h"
 #include "DisplayManager.h"
 #include "Logging.h"
+#include "WindowLayouts.h"
 
 using namespace Qt::StringLiterals;
 
@@ -22,15 +23,18 @@ bool hasFollowUpActions(const WorkspaceConfig& config) {
 WorkspaceService::WorkspaceService(Services::DisplayManager* displayManager, Services::AudioDeviceManager* audioManager,
                                    Services::AppLauncher* appLauncher, QObject* parent)
     : QObject(parent), m_displayManager(displayManager), m_audioManager(audioManager), m_appLauncher(appLauncher),
-      m_displayTimeoutTimer(std::make_unique<QTimer>()), m_displayTimeoutMs(Utils::DisplaySwitchTimeoutMs) {
+      m_displayTimeoutTimer(std::make_unique<QTimer>()), m_windowRestoreTimer(std::make_unique<QTimer>()),
+      m_displayTimeoutMs(Utils::DisplaySwitchTimeoutMs) {
     if (!displayManager || !audioManager || !appLauncher) {
         qCFatal(lcCore) << "WorkspaceService: Dependencies must not be null";
         return;
     }
 
     m_displayTimeoutTimer->setSingleShot(true);
+    m_windowRestoreTimer->setSingleShot(true);
 
     connect(m_displayTimeoutTimer.get(), &QTimer::timeout, this, &WorkspaceService::onDisplayTimeout);
+    connect(m_windowRestoreTimer.get(), &QTimer::timeout, this, &WorkspaceService::restoreWindowLayout);
 
     // Monitor system display changes to verify if our switch was successful
     connect(m_displayManager, &Services::DisplayManager::displaysChanged, this, &WorkspaceService::onDisplayChanged);
@@ -54,6 +58,14 @@ void WorkspaceService::setAudioConfirmation(bool enabled) {
     m_audioConfirmation = enabled;
 }
 
+void WorkspaceService::setWindowLayouts(Services::WindowLayouts* layouts) {
+    m_windowLayouts = layouts;
+}
+
+void WorkspaceService::setRememberWindowLayouts(bool enabled) {
+    m_rememberWindowLayouts = enabled;
+}
+
 void WorkspaceService::applyWorkspaceConfig(const WorkspaceConfig& config) {
     if (isSwitchInProgress()) {
         qCWarning(lcCore) << "Another switch is in progress, ignoring profile:" << config.name;
@@ -64,6 +76,8 @@ void WorkspaceService::applyWorkspaceConfig(const WorkspaceConfig& config) {
     qCDebug(lcCore) << "Applying profile:" << config.name;
 
     m_displayTimeoutTimer->stop();
+    // A restore that has not run yet belongs to the switch this request replaces.
+    m_windowRestoreTimer->stop();
     m_isWaitingForDisplay = false;
     m_isApplyingProfile = true;
     const quint64 operationId = ++m_operationId;
@@ -90,6 +104,12 @@ void WorkspaceService::applyWorkspaceConfig(const WorkspaceConfig& config) {
     m_hadAppLaunchError = false;
     m_stageIssues.clear();
     m_hadActualChanges = m_displaySwitchRequested || audioChanged;
+
+    // The layout of the screens being left is what the next visit to them should bring back, so it is
+    // taken before the system has a chance to move anything.
+    if (m_displaySwitchRequested) {
+        rememberCurrentWindowLayout();
+    }
 
     emit configApplyStarted(config);
 
@@ -134,6 +154,8 @@ void WorkspaceService::switchDisplayDirectly(const QString& displayId) {
 
     ++m_operationId;
     m_isSwitchingDisplay = true;
+    m_windowRestoreTimer->stop();
+    rememberCurrentWindowLayout();
 
     m_displayManager->setDisplayModeAsync(displayId).then(this, [this, displayId](bool success) {
         m_isSwitchingDisplay = false;
@@ -141,7 +163,12 @@ void WorkspaceService::switchDisplayDirectly(const QString& displayId) {
         if (!success) {
             qCWarning(lcService) << "Direct display switch failed:" << displayId;
             emit errorOccurred(tr("Failed to switch display."));
+            return;
         }
+
+        // A direct switch has no profile to wait for, so the settle delay also covers the debounce
+        // that precedes the system's own topology notification.
+        scheduleWindowLayoutRestore();
     });
 }
 
@@ -157,6 +184,7 @@ void WorkspaceService::onDisplayChanged() {
         m_displayChangeSucceeded = true;
         m_displayTimeoutTimer->stop();
         finalizeApplication(ApplyStatus::Success);
+        scheduleWindowLayoutRestore();
     }
 }
 
@@ -236,6 +264,40 @@ void WorkspaceService::finalizeApplication(ApplyStatus status) {
     m_hadAppLaunchError = false;
     m_stageIssues.clear();
     m_hadActualChanges = false;
+}
+
+void WorkspaceService::rememberCurrentWindowLayout() {
+    if (!m_rememberWindowLayouts || m_windowLayouts == nullptr) {
+        return;
+    }
+
+    m_windowLayouts->remember(m_windowLayouts->topologyKey(), m_windowLayouts->capture());
+}
+
+void WorkspaceService::scheduleWindowLayoutRestore() {
+    if (!m_rememberWindowLayouts || m_windowLayouts == nullptr) {
+        return;
+    }
+
+    m_windowRestoreTimer->start(Utils::WindowLayoutRestoreDelayMs);
+}
+
+void WorkspaceService::restoreWindowLayout() {
+    if (!m_rememberWindowLayouts || m_windowLayouts == nullptr) {
+        return;
+    }
+
+    const QString topology = m_windowLayouts->topologyKey();
+    const QList<Services::WindowPlacement> layout = m_windowLayouts->layoutFor(topology);
+    if (layout.isEmpty()) {
+        // Nothing has been visited from these screens yet; their layout is created when the user
+        // leaves them.
+        qCDebug(lcCore) << "No saved window layout for the current screen configuration.";
+        return;
+    }
+
+    const int placed = m_windowLayouts->restore(layout);
+    qCDebug(lcCore) << "Window layout restored:" << placed << "of" << layout.size() << "windows placed.";
 }
 
 QString WorkspaceService::applyStatusName(WorkspaceService::ApplyStatus status) {

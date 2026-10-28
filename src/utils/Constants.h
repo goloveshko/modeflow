@@ -56,6 +56,16 @@ static_assert(StartupSilentRestartDelayMs >= 100 && StartupSilentRestartDelayMs 
 /** Debounce delay for profile auto-saving (ms) */
 constexpr int ProfileAutosaveDebounceMs = 350;
 
+/**
+ * Pause before the windows of the target layout are moved (ms).
+ *
+ * Display events are debounced by DisplayDebounceIntervalMs, and applications may still be reacting
+ * to the resolution change when the system reports it.
+ */
+constexpr int WindowLayoutRestoreDelayMs = 800;
+static_assert(WindowLayoutRestoreDelayMs > DisplayDebounceIntervalMs && WindowLayoutRestoreDelayMs <= 5000,
+              "WindowLayoutRestoreDelayMs must outlast the display debounce and stay under 5s");
+
 // ============================================================================
 // Sizes and Limits
 // ============================================================================

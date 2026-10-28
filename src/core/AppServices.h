@@ -10,6 +10,8 @@ class DisplayManager;
 class HotkeyManager;
 class UpdateService;
 class AutostartManager;
+class SystemWindowBackend;
+class WindowLayouts;
 } // namespace ModeFlow::Services
 
 namespace ModeFlow::Gui {
@@ -45,6 +47,8 @@ struct AppServices {
 
     std::unique_ptr<Services::HotkeyManager> hotkeyManager;
     std::unique_ptr<Services::UpdateService> updateService;
+    std::unique_ptr<Services::SystemWindowBackend> windowBackend;
+    std::unique_ptr<Services::WindowLayouts> windowLayouts;
     std::unique_ptr<WorkspaceService> workspaceService;
     std::unique_ptr<StyleManager> styleManager;
 
