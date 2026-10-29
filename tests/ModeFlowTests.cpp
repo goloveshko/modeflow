@@ -775,6 +775,7 @@ private slots:
     void workspaceDeleteSaveFailureDoesNotEmitRefresh();
     void settingsAcceptCommitsAutostartAndConfig();
     void settingsDialog_commitsTheWindowLayoutPreference();
+    void settingsDialog_windowLayoutPreferenceEnablesSave();
     void settingsAcceptRollsBackOnSaveFailure();
     void commandLineBuilder_generatesCorrectArguments();
     void cliParser_parsesArgumentsCorrectly();
@@ -1016,6 +1017,30 @@ void ModeFlowTests::settingsDialog_commitsTheWindowLayoutPreference() {
     QCOMPARE(settingsManager.saveCalls, 1);
     QCOMPARE(settingsManager.rememberWindowLayoutsValue, false);
     QCOMPARE(dialog.result(), static_cast<int>(QDialog::Accepted));
+}
+
+void ModeFlowTests::settingsDialog_windowLayoutPreferenceEnablesSave() {
+    FakeSettingsManager settingsManager;
+    FakeWorkspaceManager workspaceManager;
+    FakeStyleManager styleManager;
+    FakeDialogManager dialogManager;
+    ModeFlow::Gui::SettingsDialog dialog(&dialogManager, &settingsManager, &workspaceManager, &styleManager);
+    QCoreApplication::processEvents();
+
+    auto* rememberLayouts = dialog.findChild<QCheckBox*>("checkRememberWindowLayouts");
+    auto* save = dialog.findChild<QPushButton*>("btnSave");
+    QVERIFY(rememberLayouts);
+    QVERIFY(save);
+
+    // Nothing has been touched yet, so there is nothing to save.
+    QVERIFY(!save->isEnabled());
+
+    rememberLayouts->setChecked(true);
+    QVERIFY(save->isEnabled());
+
+    // Putting it back leaves the form as it was saved, so the button goes back to sleep.
+    rememberLayouts->setChecked(false);
+    QVERIFY(!save->isEnabled());
 }
 
 void ModeFlowTests::settingsAcceptRollsBackOnSaveFailure() {

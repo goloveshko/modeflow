@@ -198,6 +198,7 @@ void SettingsDialog::setupConnections() {
     connect(ui->checkAutoUpdate, &QCheckBox::toggled, this, &SettingsDialog::updateUiState);
     connect(ui->checkLoggingEnabled, &QCheckBox::toggled, this, &SettingsDialog::updateUiState);
     connect(ui->checkAskConfirmation, &QCheckBox::toggled, this, &SettingsDialog::updateUiState);
+    connect(ui->checkRememberWindowLayouts, &QCheckBox::toggled, this, &SettingsDialog::updateUiState);
     connect(ui->comboLanguage, QOverload<int>::of(&QComboBox::currentIndexChanged), this,
             &SettingsDialog::updateUiState);
     connect(ui->comboTheme, QOverload<int>::of(&QComboBox::currentIndexChanged), this, &SettingsDialog::updateUiState);
