@@ -39,6 +39,11 @@ CommandLineBuilder& CommandLineBuilder::withDelay(int seconds) {
     return *this;
 }
 
+CommandLineBuilder& CommandLineBuilder::withForUser(const QString& sid) {
+    m_forUserSid = sid;
+    return *this;
+}
+
 QStringList CommandLineBuilder::toStringList() const {
     QStringList args;
     if (m_logon)
@@ -53,6 +58,9 @@ QStringList CommandLineBuilder::toStringList() const {
         args << u"--"_s % TaskArgs::SilentRestart;
     if (m_delaySeconds > 0) {
         args << u"--"_s % TaskArgs::Delay << QString::number(m_delaySeconds);
+    }
+    if (!m_forUserSid.isEmpty()) {
+        args << u"--"_s % TaskArgs::ForUser << m_forUserSid;
     }
     return args;
 }

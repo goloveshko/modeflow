@@ -35,7 +35,13 @@ QFuture<bool> AutostartManager::toggleAsync(bool checked, int delaySeconds, bool
         } else {
             CommandLineBuilder elevationBuilder;
             if (checked) {
-                elevationBuilder.withRegister().withLogon().withDelay(delaySeconds).withLog(enableLogging);
+                // The elevated helper registers on our behalf, so the task has to carry our SID;
+                // left empty the scheduler would pin it to the admin that approved the prompt.
+                elevationBuilder.withRegister()
+                    .withLogon()
+                    .withDelay(delaySeconds)
+                    .withLog(enableLogging)
+                    .withForUser(Utils::TaskScheduler::currentUserSid());
             } else {
                 elevationBuilder.withUnregister();
             }

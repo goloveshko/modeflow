@@ -918,6 +918,10 @@
         <source>--delay expects a non-negative number of seconds.</source>
         <translation>Параметр --delay ожидает неотрицательное число секунд.</translation>
     </message>
+    <message>
+        <source>--for-user expects an account SID.</source>
+        <translation>Параметр --for-user ожидает SID учётной записи.</translation>
+    </message>
 </context>
 <context>
     <name>SettingsDialog</name>

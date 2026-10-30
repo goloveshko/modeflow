@@ -9,6 +9,7 @@
 
 #ifdef Q_OS_WIN
 #include <comdef.h>
+#include <sddl.h>
 #include <taskschd.h>
 #include <winsvc.h>
 #include <wrl/client.h>
@@ -66,8 +67,8 @@ bool connectTaskService(ComPtr<ITaskService>& pService, ComPtr<ITaskFolder>& pRo
 }
 } // namespace
 
-bool TaskScheduler::createTaskAtLogon(const QString& arguments, int delaySeconds, bool runHighest, QString taskName,
-                                      QString exePath) {
+bool TaskScheduler::createTaskAtLogon(const QString& arguments, int delaySeconds, bool runHighest,
+                                      const QString& principalSid, QString taskName, QString exePath) {
     if (!isAdmin()) {
         qCWarning(lcUtil) << "Administrator rights required";
         return false;
@@ -114,6 +115,18 @@ bool TaskScheduler::createTaskAtLogon(const QString& arguments, int delaySeconds
     if (!require(pTask->get_Principal(&pPrincipal), "get_Principal") ||
         !require(pPrincipal->put_RunLevel(runHighest ? TASK_RUNLEVEL_HIGHEST : TASK_RUNLEVEL_LUA), "put_RunLevel")) {
         return false;
+    }
+
+    // Without an explicit user the scheduler pins the task to the registering process, so a task
+    // created by an elevated helper would belong to the admin instead of the account that asked.
+    if (!principalSid.isEmpty()) {
+        if (!isValidUserSid(principalSid)) {
+            qCWarning(lcUtil) << "Refused to register the task for a SID that is not a user account:" << principalSid;
+            return false;
+        }
+        if (!require(pPrincipal->put_UserId(_bstr_t(principalSid.toStdWString().c_str())), "put_UserId")) {
+            return false;
+        }
     }
 
     if (!require(pTask->get_Settings(&pSettings), "get_Settings") ||
@@ -168,6 +181,15 @@ bool TaskScheduler::createTaskAtLogon(const QString& arguments, int delaySeconds
                                                      TASK_LOGON_INTERACTIVE_TOKEN, _variant_t(L""), &pRegisteredTask),
                  "RegisterTaskDefinition")) {
         return false;
+    }
+
+    // Updating a task keeps the descriptor it was created with and ignores the one passed to
+    // RegisterTaskDefinition, so read access for the new principal is set on the task itself.
+    if (const QString sddl = taskSecurityDescriptor(principalSid); !sddl.isEmpty()) {
+        if (!require(pRegisteredTask->SetSecurityDescriptor(_bstr_t(sddl.toStdWString().c_str()), 0),
+                     "SetSecurityDescriptor")) {
+            return false;
+        }
     }
 
     qCDebug(lcUtil) << "Task created successfully:" << taskName;
@@ -277,6 +299,60 @@ bool TaskScheduler::isAdmin() {
     if (hToken)
         CloseHandle(hToken);
     return fRet;
+}
+
+QString TaskScheduler::currentUserSid() {
+    HANDLE token = nullptr;
+    if (!OpenProcessToken(GetCurrentProcess(), TOKEN_QUERY, &token)) {
+        qCWarning(lcUtil) << "OpenProcessToken failed while reading the current user SID";
+        return {};
+    }
+
+    DWORD needed = 0;
+    GetTokenInformation(token, TokenUser, nullptr, 0, &needed);
+
+    QString sid;
+    if (needed > 0) {
+        QByteArray buffer(static_cast<int>(needed), 0);
+        if (GetTokenInformation(token, TokenUser, buffer.data(), needed, &needed)) {
+            const auto* info = reinterpret_cast<const TOKEN_USER*>(buffer.constData());
+            LPWSTR text = nullptr;
+            if (ConvertSidToStringSidW(info->User.Sid, &text)) {
+                sid = QString::fromWCharArray(text);
+                LocalFree(text);
+            }
+        }
+    }
+
+    CloseHandle(token);
+    return sid;
+}
+
+bool TaskScheduler::isValidUserSid(const QString& sid) {
+    PSID psid = nullptr;
+    if (!ConvertStringSidToSidW(reinterpret_cast<LPCWSTR>(sid.utf16()), &psid)) {
+        return false;
+    }
+
+    WCHAR account[64] = {};
+    WCHAR domain[64] = {};
+    DWORD accountSize = 64;
+    DWORD domainSize = 64;
+    SID_NAME_USE use = SidTypeUnknown;
+    const BOOL lookedUp = LookupAccountSidW(nullptr, psid, account, &accountSize, domain, &domainSize, &use);
+    LocalFree(psid);
+
+    return lookedUp != FALSE && use == SidTypeUser;
+}
+
+QString TaskScheduler::taskSecurityDescriptor(const QString& principalSid) {
+    if (principalSid.isEmpty()) {
+        return {};
+    }
+
+    // Administrators and SYSTEM keep what the scheduler grants them by default, otherwise the
+    // elevated helper could no longer update or remove the task it has just registered.
+    return u"D:(A;ID;0x1f019f;;;BA)(A;ID;0x1f019f;;;SY)(A;ID;FA;;;BA)(A;;FR;;;%1)"_s.arg(principalSid);
 }
 
 bool TaskScheduler::runAsAdmin(const QString& argument) {

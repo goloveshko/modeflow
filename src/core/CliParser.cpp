@@ -17,6 +17,8 @@ CliParser::Result CliParser::parse(const QStringList& arguments) {
     QCommandLineOption optLog(TaskArgs::Log.toString(), "Enable diagnostic logging.");
     QCommandLineOption optDelay(TaskArgs::Delay.toString(), "Set logon delay in seconds.", "seconds", "0");
     QCommandLineOption optSilent(TaskArgs::SilentRestart.toString(), "Internal silent restart flag.");
+    QCommandLineOption optForUser(TaskArgs::ForUser.toString(),
+                                  "Register the logon task for this account SID (elevated helper only).", "sid");
 
     parser.addOption(optRegister);
     parser.addOption(optUnregister);
@@ -24,6 +26,7 @@ CliParser::Result CliParser::parse(const QStringList& arguments) {
     parser.addOption(optLog);
     parser.addOption(optDelay);
     parser.addOption(optSilent);
+    parser.addOption(optForUser);
 
     Result result;
 
@@ -62,6 +65,16 @@ CliParser::Result CliParser::parse(const QStringList& arguments) {
             return result;
         }
         result.options.delaySeconds = delay;
+    }
+
+    if (parser.isSet(optForUser)) {
+        const QString sid = parser.value(optForUser).trimmed();
+        if (sid.isEmpty()) {
+            result.outcome = Outcome::Failed;
+            result.text = QObject::tr("--for-user expects an account SID.");
+            return result;
+        }
+        result.options.principalSid = sid;
     }
 
     if (wantsRegister) {

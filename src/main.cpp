@@ -82,7 +82,8 @@ int main(int argc, char* argv[]) {
         CommandLineBuilder builder;
         builder.withLogon(cli.options.isLogon).withLog(cli.options.enableLogging);
 
-        const bool ok = TaskScheduler::createTaskAtLogon(builder.toString(), cli.options.delaySeconds, false);
+        const bool ok = TaskScheduler::createTaskAtLogon(builder.toString(), cli.options.delaySeconds, false,
+                                                         cli.options.principalSid);
         return ok ? 0 : 1;
     }
     if (cli.mode == CliParser::RunMode::UnregisterTask) {

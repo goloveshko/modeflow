@@ -72,6 +72,7 @@
 #include "SettingsDialog.h"
 #include "SingleInstanceGuard.h"
 #include "SystemUtils.h"
+#include "TaskScheduler.h"
 #include "UpdateService.h"
 #include "WindowLayouts.h"
 #include "WorkspaceModel.h"
@@ -633,8 +634,8 @@ ModeFlow::Services::LiveWindow liveWindow(qint64 pid, qint64 startedAt, const QS
 }
 
 ModeFlow::Services::WindowPlacement savedPlacement(qint64 pid, qint64 startedAt, const QString& windowClass,
-                                                   quintptr handle, const QRect& geometry,
-                                                   bool maximized = false, bool minimized = false) {
+                                                   quintptr handle, const QRect& geometry, bool maximized = false,
+                                                   bool minimized = false) {
     ModeFlow::Services::WindowPlacement placement;
     placement.identity.pid = pid;
     placement.identity.processStart = startedAt;
@@ -780,6 +781,9 @@ private slots:
     void commandLineBuilder_generatesCorrectArguments();
     void cliParser_parsesArgumentsCorrectly();
     void cliParser_finishesHelpAndBadArgumentsWithoutTouchingTheTask();
+    void taskScheduler_principalSidRoundTripsThroughTheCommandLine();
+    void taskScheduler_refusesSidsThatAreNotUserAccounts();
+    void taskScheduler_securityDescriptorGrantsReadToThePrincipal();
     void hotkeyEdit_replacesTheChordInsteadOfAppendingASecondOne();
     void singleChord_keepsTheChordQHotkeyIsAbleToBind();
     void workspaceConfig_fromJsonReducesAMultiChordImport();
@@ -1100,6 +1104,14 @@ void ModeFlowTests::commandLineBuilder_generatesCorrectArguments() {
 
     QStringList expected2 = {"--silent-restart"};
     QCOMPARE(builder2.toStringList(), expected2);
+
+    // The elevation helper carries the requesting account, so the elevated process can pin the
+    // task principal to it instead of to the admin that approved the prompt.
+    CommandLineBuilder builder3;
+    builder3.withRegister().withLogon().withDelay(5).withForUser(QStringLiteral("S-1-5-21-1-2-3-1001"));
+
+    QStringList expected3 = {"--logon", "--register", "--delay", "5", "--for-user", "S-1-5-21-1-2-3-1001"};
+    QCOMPARE(builder3.toStringList(), expected3);
 }
 
 void ModeFlowTests::cliParser_parsesArgumentsCorrectly() {
@@ -1130,6 +1142,18 @@ void ModeFlowTests::cliParser_parsesArgumentsCorrectly() {
         QVERIFY(!result.options.isSilentRestart);
         QVERIFY(result.options.enableLogging);
         QCOMPARE(result.options.delaySeconds, 15);
+        QVERIFY(result.options.principalSid.isEmpty());
+    }
+
+    // Scenario 2b: the elevated helper receives the account the task must run for
+    {
+        QStringList args = {QStringLiteral("ModeFlow.exe"), QStringLiteral("--register"), QStringLiteral("--for-user"),
+                            QStringLiteral("S-1-5-21-1-2-3-1001")};
+        const CliParser::Result result = CliParser::parse(args);
+
+        QCOMPARE(result.outcome, CliParser::Outcome::Run);
+        QCOMPARE(result.mode, CliParser::RunMode::RegisterTask);
+        QCOMPARE(result.options.principalSid, QStringLiteral("S-1-5-21-1-2-3-1001"));
     }
 
     // Scenario 3: An unparsable delay is refused instead of silently becoming zero
@@ -1166,6 +1190,8 @@ void ModeFlowTests::cliParser_finishesHelpAndBadArgumentsWithoutTouchingTheTask(
          CliParser::Outcome::Failed},
         {{exe, QStringLiteral("--unregister"), QStringLiteral("--delay"), QStringLiteral("-5")},
          CliParser::Outcome::Failed},
+        // An empty principal SID must not reach the elevated registration path.
+        {{exe, QStringLiteral("--register"), QStringLiteral("--for-user"), QString()}, CliParser::Outcome::Failed},
     };
 
     for (const Case& testCase : cases) {
@@ -1179,6 +1205,61 @@ void ModeFlowTests::cliParser_finishesHelpAndBadArgumentsWithoutTouchingTheTask(
         // The safety property: no case below may ask main() to create or delete a scheduled task.
         QCOMPARE(result.mode, CliParser::RunMode::NormalGui);
     }
+}
+
+void ModeFlowTests::taskScheduler_principalSidRoundTripsThroughTheCommandLine() {
+    using ModeFlow::Core::CliParser;
+    using ModeFlow::Core::CommandLineBuilder;
+    using ModeFlow::Utils::TaskScheduler;
+
+    // The elevation helper is a separate process, so the requesting account travels as text and
+    // must survive the round trip through the builder and the parser unchanged.
+    const QString sid = TaskScheduler::currentUserSid();
+    QVERIFY2(!sid.isEmpty(), "the test process must be able to read its own account SID");
+
+    CommandLineBuilder builder;
+    builder.withRegister().withLogon().withDelay(5).withForUser(sid);
+
+    QStringList args = {QStringLiteral("ModeFlow.exe")};
+    args << builder.toStringList();
+
+    const CliParser::Result result = CliParser::parse(args);
+    QCOMPARE(result.outcome, CliParser::Outcome::Run);
+    QCOMPARE(result.mode, CliParser::RunMode::RegisterTask);
+    QCOMPARE(result.options.principalSid, sid);
+}
+
+void ModeFlowTests::taskScheduler_refusesSidsThatAreNotUserAccounts() {
+    using ModeFlow::Utils::TaskScheduler;
+
+    QVERIFY(TaskScheduler::isValidUserSid(TaskScheduler::currentUserSid()));
+
+    // Well-formed SIDs of a group and of a well-known account must not become a task principal,
+    // because an interactive logon token only exists for a real user.
+    QVERIFY(!TaskScheduler::isValidUserSid(QStringLiteral("S-1-5-32-544")));
+    QVERIFY(!TaskScheduler::isValidUserSid(QStringLiteral("S-1-5-18")));
+    QVERIFY(!TaskScheduler::isValidUserSid(QStringLiteral("S-1-5-21-bogus")));
+    QVERIFY(!TaskScheduler::isValidUserSid(QString()));
+}
+
+void ModeFlowTests::taskScheduler_securityDescriptorGrantsReadToThePrincipal() {
+    using ModeFlow::Utils::TaskScheduler;
+
+    const QString sid = TaskScheduler::currentUserSid();
+    QVERIFY2(!sid.isEmpty(), "the test process must be able to read its own account SID");
+
+    // Registering over an existing task keeps the descriptor it was created with, so the account
+    // the task is handed to has to be granted read access by us.
+    const QString sddl = TaskScheduler::taskSecurityDescriptor(sid);
+    QVERIFY(sddl.contains(QStringLiteral("(A;;FR;;;") + sid + QStringLiteral(")")));
+
+    // Dropping these would lock the elevated helper out of updating and removing its own task.
+    QVERIFY(sddl.contains(QStringLiteral("(A;ID;FA;;;BA)")));
+    QVERIFY(sddl.contains(QStringLiteral("(A;ID;0x1f019f;;;BA)")));
+    QVERIFY(sddl.contains(QStringLiteral("(A;ID;0x1f019f;;;SY)")));
+
+    // Without a principal the scheduler default stays in charge.
+    QVERIFY(TaskScheduler::taskSecurityDescriptor(QString()).isEmpty());
 }
 
 void ModeFlowTests::hotkeyEdit_replacesTheChordInsteadOfAppendingASecondOne() {
