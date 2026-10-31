@@ -50,6 +50,9 @@ configure_compiler()
 
 qt_standard_project_setup()
 
+# Forms are converted to headers by the explicit uic call below, so the automatic pass is off.
+set(CMAKE_AUTOUIC OFF)
+
 # Default tests compilation to ON to catch interface regressions early.
 option(BUILD_TESTING "Build the testing tree." ON)
 include(CTest)
@@ -96,8 +99,8 @@ set(COMMON_SOURCES
     src/core/impl/StyleManager.cpp src/core/impl/StyleManager.h
 
     # GUI
-    src/gui/AboutDialog.cpp src/gui/AboutDialog.h src/gui/AboutDialog.ui
-    src/gui/AppLaunchDialog.cpp src/gui/AppLaunchDialog.h src/gui/AppLaunchDialog.ui
+    src/gui/AboutDialog.cpp src/gui/AboutDialog.h
+    src/gui/AppLaunchDialog.cpp src/gui/AppLaunchDialog.h
     src/gui/AppListWidget.cpp src/gui/AppListWidget.h
     src/gui/BaseDialog.cpp src/gui/BaseDialog.h
     src/gui/DialogManager.cpp src/gui/DialogManager.h
@@ -106,16 +109,16 @@ set(COMMON_SOURCES
     src/gui/HotkeyEdit.cpp src/gui/HotkeyEdit.h
     src/gui/HotkeyValidator.cpp src/gui/HotkeyValidator.h
     src/gui/LogHighlighter.cpp src/gui/LogHighlighter.h
-    src/gui/LogViewerDialog.cpp src/gui/LogViewerDialog.h src/gui/LogViewerDialog.ui
-    src/gui/MainWindow.cpp src/gui/MainWindow.h src/gui/MainWindow.ui
+    src/gui/LogViewerDialog.cpp src/gui/LogViewerDialog.h
+    src/gui/MainWindow.cpp src/gui/MainWindow.h
     src/gui/ProfileEditor.cpp src/gui/ProfileEditor.h
     src/gui/ProfileIconMenu.cpp src/gui/ProfileIconMenu.h
     src/gui/ProfileListView.cpp src/gui/ProfileListView.h
     src/gui/ProfileTransfer.cpp src/gui/ProfileTransfer.h
-    src/gui/SettingsDialog.cpp src/gui/SettingsDialog.h src/gui/SettingsDialog.ui
+    src/gui/SettingsDialog.cpp src/gui/SettingsDialog.h
     src/gui/StyleBridge.cpp src/gui/StyleBridge.h
     src/gui/TrayController.cpp src/gui/TrayController.h
-    src/gui/UpdateDialog.cpp src/gui/UpdateDialog.h src/gui/UpdateDialog.ui
+    src/gui/UpdateDialog.cpp src/gui/UpdateDialog.h
 
     # SERVICES
     src/services/AppLauncher.cpp src/services/AppLauncher.h
@@ -143,10 +146,27 @@ set(COMMON_SOURCES
     src/utils/WinKeyTranslator.cpp src/utils/WinKeyTranslator.h
 )
 
+# --- UI FORMS ---
+# A new dialog form only has to be added to this list to get its generated header.
+set(DIALOG_FORMS
+    src/gui/AboutDialog.ui
+    src/gui/AppLaunchDialog.ui
+    src/gui/LogViewerDialog.ui
+    src/gui/MainWindow.ui
+    src/gui/SettingsDialog.ui
+    src/gui/UpdateDialog.ui
+)
+
 # --- CENTRALIZED OBJECT LIBRARY (${CORE_TARGET}) ---
 # Compiles all shared sources ONCE as an object library.
 # Both the main executable and the tests will link against this target.
 add_library(${CORE_TARGET} OBJECT ${COMMON_SOURCES})
+
+qt6_wrap_ui(GENERATED_UI_HEADERS ${DIALOG_FORMS})
+target_sources(${CORE_TARGET} PRIVATE ${GENERATED_UI_HEADERS})
+
+# The generated headers are written next to the build files of this directory.
+target_include_directories(${CORE_TARGET} PRIVATE ${CMAKE_CURRENT_BINARY_DIR})
 
 # Target-specific includes (propagated publicly)
 target_include_directories(${CORE_TARGET} PUBLIC
