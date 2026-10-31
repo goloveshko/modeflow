@@ -7,7 +7,7 @@
     <x>0</x>
     <y>0</y>
     <width>400</width>
-    <height>486</height>
+    <height>516</height>
    </rect>
   </property>
   <property name="minimumSize">
@@ -145,7 +145,7 @@
         </property>
        </widget>
       </item>
-      <item row="6" column="0" colspan="2">
+      <item row="7" column="0" colspan="2">
        <layout class="QGridLayout" name="gridLayout" columnstretch="0,10">
         <item row="0" column="0">
          <widget class="QLabel" name="label_lang">
@@ -186,7 +186,7 @@
         </property>
        </widget>
       </item>
-      <item row="7" column="0" colspan="2">
+      <item row="6" column="0" colspan="2">
        <widget class="QCheckBox" name="checkRememberWindowLayouts">
         <property name="toolTip">
          <string>Keep a separate window layout for each screen configuration and restore it when switching back.</string>
@@ -238,9 +238,9 @@
   <tabstop>keyEditNextProfile</tabstop>
   <tabstop>checkAudioConfirmation</tabstop>
   <tabstop>checkAutoUpdate</tabstop>
+  <tabstop>checkRememberWindowLayouts</tabstop>
   <tabstop>comboLanguage</tabstop>
   <tabstop>comboTheme</tabstop>
-  <tabstop>checkRememberWindowLayouts</tabstop>
   <tabstop>buttonBox</tabstop>
  </tabstops>
  <resources/>

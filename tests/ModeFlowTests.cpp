@@ -777,6 +777,7 @@ private slots:
     void settingsAcceptCommitsAutostartAndConfig();
     void settingsDialog_commitsTheWindowLayoutPreference();
     void settingsDialog_windowLayoutPreferenceEnablesSave();
+    void settingsDialog_windowLayoutCheckboxSitsWithTheOtherCheckboxes();
     void settingsAcceptRollsBackOnSaveFailure();
     void commandLineBuilder_generatesCorrectArguments();
     void cliParser_parsesArgumentsCorrectly();
@@ -1045,6 +1046,36 @@ void ModeFlowTests::settingsDialog_windowLayoutPreferenceEnablesSave() {
     // Putting it back leaves the form as it was saved, so the button goes back to sleep.
     rememberLayouts->setChecked(false);
     QVERIFY(!save->isEnabled());
+}
+
+void ModeFlowTests::settingsDialog_windowLayoutCheckboxSitsWithTheOtherCheckboxes() {
+    FakeSettingsManager settingsManager;
+    FakeWorkspaceManager workspaceManager;
+    FakeStyleManager styleManager;
+    FakeDialogManager dialogManager;
+    ModeFlow::Gui::SettingsDialog dialog(&dialogManager, &settingsManager, &workspaceManager, &styleManager);
+
+    auto* rememberLayouts = dialog.findChild<QCheckBox*>("checkRememberWindowLayouts");
+    auto* askConfirmation = dialog.findChild<QCheckBox*>("checkAskConfirmation");
+    auto* language = dialog.findChild<QComboBox*>("comboLanguage");
+    QVERIFY(rememberLayouts);
+    QVERIFY(askConfirmation);
+    QVERIFY(language);
+
+    // The form is laid out without a screen so the rows get real positions and nothing appears
+    // on the desktop.
+    dialog.setAttribute(Qt::WA_DontShowOnScreen);
+    dialog.show();
+    QCoreApplication::processEvents();
+
+    // The card reads as one list of toggles followed by the language and theme rows, so the layout
+    // toggle sits right under the last checkbox instead of dangling below the comboboxes.
+    const QString positions = QStringLiteral("confirm=%1 layout=%2 language=%3")
+                                  .arg(askConfirmation->y())
+                                  .arg(rememberLayouts->y())
+                                  .arg(language->y());
+    QVERIFY2(askConfirmation->y() < rememberLayouts->y(), qPrintable(positions));
+    QVERIFY2(rememberLayouts->y() < language->y(), qPrintable(positions));
 }
 
 void ModeFlowTests::settingsAcceptRollsBackOnSaveFailure() {
