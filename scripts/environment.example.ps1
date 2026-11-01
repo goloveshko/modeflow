@@ -11,18 +11,15 @@
 # Override toolchain directories if they differ from system defaults.
 #
 # $env:QT_DIR     = "C:\Qt\6.11.2\msvc2022_64"
-# $env:VS_PATH    = "C:\Program Files\Microsoft Visual Studio\18\Community\VC"
 # $env:VCPKG_ROOT = "C:\dev\vcpkg"
 # $env:VCPKG_EXE  = "C:\dev\vcpkg\vcpkg.exe"
 
 
 # --- 2. Local Test Server Endpoints (Dev/Debug Builds Only) -----------------
 # Override repository and API endpoints when testing against local Forgejo/Gitea.
-# Note: build.ps1 will automatically ignore these during release packaging
-# (--package / build_package.bat) to enforce official production URLs.
+# Release packaging (--package / build_package.bat) replaces all three with the
+# official production URLs, so these only affect dev and debug builds.
 #
-# if (-not $Package) {
-#     $env:GITHUB_URL  = "http://localhost:3000/{owner}/{repo}"
-#     $env:UPDATE_URL  = "http://localhost:3000/api/v1/repos/{owner}/{repo}/releases/latest"
-#     $env:LICENSE_URL = "$($env:GITHUB_URL)/src/branch/main/LICENSE"
-# }
+# $env:GITHUB_URL  = "http://localhost:3000/{owner}/{repo}"
+# $env:UPDATE_URL  = "http://localhost:3000/api/v1/repos/{owner}/{repo}/releases/latest"
+# $env:LICENSE_URL = "$($env:GITHUB_URL)/src/branch/main/LICENSE"
