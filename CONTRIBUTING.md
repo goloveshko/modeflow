@@ -85,6 +85,10 @@ When adding a feature or fixing a bug, please write corresponding tests inside `
     ```bash
     build\bin\Debug\ModeFlowTests.exe
     ```
+*   Behaviour that depends on UAC — the shield on the autostart switch, the consent dialog behind
+    it, and which account the registered logon task ends up belonging to — cannot be exercised from
+    your own account and cannot be asserted from a unit test. Check those in a disposable Windows
+    Sandbox session instead: see [docs/sandbox_verification.md](docs/sandbox_verification.md).
 
 ---
 
@@ -107,4 +111,3 @@ Submit your pull request (PR) targeting the `main` branch.
 
 ## 🔒 Security Vulnerabilities
 If you discover a security vulnerability (such as a local IPC privilege escalation or input validation bypass), please do not open a public issue. Instead, contact the maintainer directly.
-```

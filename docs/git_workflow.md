@@ -167,4 +167,3 @@ Verify the generated output:
     *   Open `build\artifacts\release_notes.md` and copy its pre-rendered contents into the release description.
     *   Drag and drop the generated `.zip` and `.sha256` files from `build\artifacts\` into the assets box.
     *   Click **Publish release**!
-```

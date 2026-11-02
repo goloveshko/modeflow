@@ -85,4 +85,3 @@ If the application crashes, a native Windows minidump (`.dmp`) is written to dis
   2. Drag and drop the `.dmp` file into the editor.
   3. Click **"Debug with Native Only"** on the right panel.
   4. Visual Studio will load the symbols and point you directly to the exact line of C++ code where the failure occurred.
-```
