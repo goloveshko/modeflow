@@ -18,7 +18,7 @@ We provide a pre-configured `.clangd` language server file and a `.clang-format`
 
 Please run the formatter before making a commit:
 ```bash
-scripts\build.bat --format
+scripts\build.cmd --format
 ```
 
 ---

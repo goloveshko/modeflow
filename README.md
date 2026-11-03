@@ -70,7 +70,7 @@
 To generate the static, self-contained binary:
 
 ```bash
-scripts/build_release.bat
+scripts/release.cmd
 ```
 
 The output will be generated in `build/bin/Release/ModeFlow.exe`.

@@ -30,7 +30,7 @@ starts a disposable Windows Sandbox session that answers exactly these questions
   ```
 * A static release executable, because the guest receives one self-contained file:
   ```bash
-  scripts\build.bat --release --static --ninja
+  scripts\build.cmd --release --static --ninja
   ```
   `sandbox.ps1` rebuilds it by itself unless you pass `-SkipBuild`; `sandbox.cmd` is the wrapper
   that always skips the rebuild and uses `build\bin\Release\ModeFlow.exe` as it stands.

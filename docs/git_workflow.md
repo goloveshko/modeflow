@@ -48,7 +48,7 @@ Develop and save your work frequently within the `dev` branch.
 ### Step 1: Format Code
 Before compiling or committing, run the formatter to keep the codebase consistent:
 ```bash
-scripts\build.bat --format
+scripts\build.cmd --format
 ```
 *Note: This automatically copies the compilation database (`compile_commands.json`) to the project root, keeping your LSP (clangd in VS Code/Zed) 100% synchronized.*
 
@@ -107,12 +107,12 @@ All user-facing strings must be wrapped in `tr()`. If you modify, add, or delete
 
 1.  **Extract new strings** into the translation source file (`ModeFlow_ru_RU.ts`):
     ```bash
-    scripts\build_lupdate.bat
+    scripts\lupdate.cmd
     ```
 2.  **Open the `.ts` file** using **Qt Linguist** (`i18n/ModeFlow_ru_RU.ts`) and translate the new entries.
 3.  **Compile the translated strings** into binary `.qm` files before packaging:
     ```bash
-    scripts\build_lrelease.bat
+    scripts\lrelease.cmd
     ```
 
 ---
@@ -146,7 +146,7 @@ Open `metadata/changelog.md` and write your release notes in Markdown under the 
 ### Step 3: Package Release
 Run the build script with the `--package` flag. This will compile the static release binary, compress the artifacts, calculate the SHA-256 hash, and dynamically generate `release_notes.md`:
 ```bash
-scripts\build.bat --release --static --ninja --package
+scripts\build.cmd --release --static --ninja --package
 ```
 
 Verify the generated output:

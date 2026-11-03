@@ -4,12 +4,12 @@
 
 To build the project, run:
 ```bash
-scripts\build.bat --debug --ninja
+scripts\build.cmd --debug --ninja
 ```
 
 To build a static release package (ZIP + SHA-256 checksum + update.json):
 ```bash
-scripts\build.bat --release --static --ninja --package
+scripts\build.cmd --release --static --ninja --package
 ```
 
 Output will be in `build\artifacts\`:
@@ -119,12 +119,12 @@ All user-facing strings must be wrapped in `tr()`. Translations live in `i18n/Mo
 After adding/changing `tr()` strings:
 1. Run `lupdate` to extract new translatable strings into the `.ts` file:
    ```bash
-   scripts\build_lupdate.bat
+   scripts\lupdate.cmd
    ```
 2. Open `i18n/ModeFlow_ru_RU.ts` in Qt Linguist and translate the new entries.
 3. Run `lrelease` to compile translations into `.qm` binary:
    ```bash
-   scripts\build_lrelease.bat
+   scripts\lrelease.cmd
    ```
 
 ## Git Staging Rules
@@ -138,5 +138,5 @@ Commit after completing each logical task — one feature, one fix, one refactor
 
 Always verify the build and run tests before committing:
 ```bash
-scripts\build.bat --debug --ninja
+scripts\build.cmd --debug --ninja
 ```

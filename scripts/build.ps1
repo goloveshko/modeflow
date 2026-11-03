@@ -52,7 +52,7 @@ function Test-WindowClosesOnExit {
     for ($i = 0; $i -lt 5 -and $proc; $i++) {
         if (-not $proc.ParentProcessId) { return $false }
         $proc = Get-CimInstance Win32_Process -Filter "ProcessId = $($proc.ParentProcessId)" -ErrorAction SilentlyContinue
-        # The first ancestor is always the wrapper .cmd/.bat itself. Check grandparents for interactive shell.
+        # The first ancestor is always the .cmd wrapper itself. Check grandparents for interactive shell.
         if ($i -gt 0 -and $proc.Name -in $shells) { return $false }
     }
     return $true
@@ -75,7 +75,7 @@ try {
         Write-Host @"
 ModeFlow Master Build & Packaging Automation Script
 
-Usage: build.bat [OPTIONS]
+Usage: build.cmd [OPTIONS]
 
   -c,  --clean         Clean build directory before building
   -s,  --static        Build with vcpkg (static linking)
@@ -94,12 +94,12 @@ Usage: build.bat [OPTIONS]
   -h,  --help          Show this help message
 
 Convenience wrappers:
-  build_debug.bat     <== build.bat --debug --ninja
-  build_release.bat   <== build.bat --release --static --ninja
-  build_package.bat   <== build.bat --release --static --ninja --package
-  run_tests.bat       <== build.bat --tests --debug --ninja
-  build_lrelease.bat  <== build.bat --lrelease
-  build_lupdate.bat   <== build.bat --lupdate
+  debug.cmd     <== build.cmd --debug --ninja
+  release.cmd   <== build.cmd --release --static --ninja
+  package.cmd   <== build.cmd --release --static --ninja --package
+  tests.cmd     <== build.cmd --tests --debug --ninja
+  lrelease.cmd  <== build.cmd --lrelease
+  lupdate.cmd   <== build.cmd --lupdate
 "@ -ForegroundColor Cyan
         exit 0
     }

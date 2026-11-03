@@ -46,7 +46,7 @@ $targetExe = Join-Path $releaseDir "ModeFlow.exe"
 
 if (-not $SkipBuild) {
     Write-Host "`n[BUILD] Compiling a fresh static Release binary..." -ForegroundColor Cyan
-    & cmd.exe /c "call `"$PSScriptRoot\build_release.bat`""
+    & cmd.exe /c "call `"$PSScriptRoot\release.cmd`""
     if ($LASTEXITCODE -ne 0) {
         Write-Host "[ERROR] Release build failed! Aborting the sandbox launch." -ForegroundColor Red
         exit 1

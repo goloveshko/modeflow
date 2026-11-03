@@ -17,7 +17,7 @@
 
 # --- 2. Local Test Server Endpoints (Dev/Debug Builds Only) -----------------
 # Override repository and API endpoints when testing against local Forgejo/Gitea.
-# Release packaging (--package / build_package.bat) replaces all three with the
+# Release packaging (--package / package.cmd) replaces all three with the
 # official production URLs, so these only affect dev and debug builds.
 #
 # $env:GITHUB_URL  = "http://localhost:3000/{owner}/{repo}"
